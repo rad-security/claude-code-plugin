@@ -6,7 +6,7 @@
       "env": {
         "CLAWKEEPER_API_KEY": "${user_config.api_key}",
         "CLAWKEEPER_DATA_DIR": "${CLAUDE_PLUGIN_DATA}",
-        "NODE_PATH": "${CLAUDE_PLUGIN_DATA}/node_modules"
+        "NODE_PATH": "${CLAUDE_PLUGIN_ROOT}/node_modules"
       }
     }
   }
