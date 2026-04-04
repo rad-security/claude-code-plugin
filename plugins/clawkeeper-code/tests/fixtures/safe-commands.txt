@@ -1,0 +1,19 @@
+npm test
+git status
+git commit -m "fix: resolve bug"
+cat README.md
+python3 -m pytest tests/
+ls -la
+grep -r "TODO" src/
+curl https://api.github.com/repos/owner/repo
+docker build -t myapp .
+make build
+node index.js
+pip install -r requirements.txt
+ssh user@server.com
+scp file.txt user@server.com:/tmp/
+rm -rf node_modules
+rm -rf dist/
+chmod +x deploy.sh
+cat /etc/os-release
+dig google.com

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "clawkeeper-security": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server.js"],
+      "env": {
+        "CLAWKEEPER_API_KEY": "${user_config.api_key}",
+        "CLAWKEEPER_DATA_DIR": "${CLAUDE_PLUGIN_DATA}",
+        "NODE_PATH": "${CLAUDE_PLUGIN_DATA}/node_modules"
+      }
+    }
+  }
+}

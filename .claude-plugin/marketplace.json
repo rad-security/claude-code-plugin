@@ -1,0 +1,36 @@
+{
+  "name": "clawkeeper",
+  "owner": {
+    "name": "RAD Security",
+    "email": "support@rad.security"
+  },
+  "metadata": {
+    "description": "Security, compliance, and threat detection for the Claude ecosystem",
+    "version": "1.0.0",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "clawkeeper-code",
+      "source": "./clawkeeper-code",
+      "description": "Security scanning and threat detection for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ patterns. Audits your setup, scans for secrets, inspects plugins for supply chain attacks. Works immediately — no account required.",
+      "version": "1.0.0",
+      "author": { "name": "RAD Security" },
+      "homepage": "https://clawkeeper.dev/claude-code",
+      "license": "MIT",
+      "keywords": ["security", "scanning", "threat-detection", "devsecops", "audit"],
+      "category": "security"
+    },
+    {
+      "name": "clawkeeper-cowork",
+      "source": "./clawkeeper-cowork",
+      "description": "Data governance and compliance for Cowork. Classifies sensitive data, detects PII, enforces org policies, verifies external recipients, and maintains a full audit trail. Works immediately — no account required.",
+      "version": "1.0.0",
+      "author": { "name": "RAD Security" },
+      "homepage": "https://clawkeeper.dev",
+      "license": "MIT",
+      "keywords": ["security", "compliance", "dlp", "data-classification", "audit", "pii"],
+      "category": "security"
+    }
+  ]
+}

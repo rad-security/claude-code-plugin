@@ -1,0 +1,25 @@
+{
+  "name": "clawkeeper",
+  "version": "1.0.0",
+  "description": "Security, compliance auditing, and data governance for Claude. Classifies sensitive data, enforces org policies, and maintains a full audit trail. Works immediately — no account required.",
+  "author": { "name": "RAD Security", "email": "support@rad.security" },
+  "homepage": "https://clawkeeper.dev",
+  "repository": "https://github.com/clawkeeper/cowork-connector",
+  "license": "MIT",
+  "keywords": ["security", "compliance", "dlp", "data-classification", "audit"],
+  "agents": "./agents/",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "diff -q \"${CLAUDE_PLUGIN_ROOT}/package.json\" \"${CLAUDE_PLUGIN_DATA}/package.json\" >/dev/null 2>&1 || (cd \"${CLAUDE_PLUGIN_DATA}\" && cp \"${CLAUDE_PLUGIN_ROOT}/package.json\" . && npm install --production 2>/dev/null) || rm -f \"${CLAUDE_PLUGIN_DATA}/package.json\""
+          }
+        ]
+      }
+    ]
+  }
+}
