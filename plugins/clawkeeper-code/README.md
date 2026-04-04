@@ -1,89 +1,56 @@
-# Clawkeeper — Security for Claude Code
+# clawkeeper-code — Security for Claude Code
 
-Threat detection, compliance auditing, and secret scanning for Claude Code sessions. Works immediately on install — no account, no API key, no configuration.
+Real-time threat detection, setup auditing, and secret scanning for Claude Code sessions. Works immediately on install — no account, no API key, no configuration.
+
+## What You Get
+
+- **Threat detection** — warns on credential exfiltration, reverse shells, prompt injection, DNS exfiltration, SUID manipulation, and 24+ patterns before they execute
+- **`/clawkeeper-code:audit`** — grades your Claude Code setup (sandbox mode, root execution, secret exposure, git signing, hook coverage, permission mode, and more)
+- **`/clawkeeper-code:inspect`** — audits installed plugins and skills for malicious hooks, prompt injection, and data exfiltration
+- **`/clawkeeper-code:secrets`** — scans your project for exposed API keys, private keys, and hardcoded credentials
+- **`/clawkeeper-code:recap`** — session activity summary from hook data
+- **`/clawkeeper-code:scan`** — runs a full host security scan
+
+Everything runs locally. No network calls, no telemetry.
 
 ## Install
 
 ```
-/plugin install clawkeeper
+/plugin marketplace add rad-security/claude-code-plugin
+/plugin install clawkeeper-code@clawkeeper
 ```
-
-Or from source during development:
-
-```
-claude --plugin-dir /path/to/clawkeeper/plugin
-```
-
-## What You Get (Free, No Account)
-
-- **Real-time threat detection** — warns on credential exfiltration, reverse shells, prompt injection, and 24+ threat patterns before they execute
-- **`/clawkeeper:audit`** — grades your Claude Code setup (sandbox mode, root execution, secret exposure, git signing, hook coverage, and more)
-- **`/clawkeeper:inspect`** — audits installed plugins and skills for malicious hooks, prompt injection, and data exfiltration
-- **`/clawkeeper:secrets`** — scans your project for exposed API keys, private keys, and hardcoded credentials
-- **`/clawkeeper:recap`** — security summary of your session (tools called, files changed, threats caught)
-- **`/clawkeeper:scan`** — runs a full host security scan
-
-Everything runs locally. No network calls, no telemetry.
-
-## Connect for More
-
-Connect a free account to unlock your dashboard — one workstation, full threat feed, scan history.
-
-```
-/clawkeeper:connect
-```
-
-Teams use Clawkeeper Pro for fleet-wide visibility, custom policies, and compliance reporting. Learn more at [clawkeeper.dev/claude-code](https://clawkeeper.dev/claude-code).
-
-## Slash Commands
-
-| Command | Description |
-|---|---|
-| `/clawkeeper:setup` | Check status, configure warn/block mode |
-| `/clawkeeper:connect` | Connect your Clawkeeper account |
-| `/clawkeeper:audit` | Claude Code setup compliance audit |
-| `/clawkeeper:inspect` | Audit installed plugins for threats |
-| `/clawkeeper:secrets` | Scan for exposed secrets |
-| `/clawkeeper:recap` | Session activity summary |
-| `/clawkeeper:scan` | Run host security scanner |
-| `/clawkeeper:status` | Shield status and stats |
-| `/clawkeeper:policies` | View org security policies |
 
 ## How It Works
 
-The plugin hooks into Claude Code at four points:
+Hooks into Claude Code at four points:
 
 1. **UserPromptSubmit** — scans prompts for jailbreak and injection attempts
 2. **PreToolUse** — detects dangerous commands, file writes, and web requests
 3. **PostToolUse** — logs tool activity for session summaries
 4. **SessionStart** — initializes session tracking
 
-Default mode is **warn** — threats are flagged but not blocked. Enable blocking mode with `/clawkeeper:setup`.
+Default mode is **warn** — threats are flagged but not blocked. Enable blocking with `/clawkeeper-code:setup`.
 
-When connected to a Clawkeeper account, hooks call the API for the full 24+ pattern engine, org policies, and fleet visibility. Without an account, a bundled detection engine runs locally with the most critical patterns.
+## Connect
 
-## Privacy
+Connect a free account for your dashboard, threat feed, and scan history:
 
-In local-only mode (no account connected):
-- Zero network calls
-- Zero telemetry
-- All detection runs on your machine
-- Session data stays in `~/.clawkeeper-plugin/`
-
-## Development
-
-Run tests:
-
-```bash
-cd plugin && bash tests/run-all.sh
+```
+/clawkeeper-code:connect
 ```
 
-Test with Claude Code:
+Teams use [Clawkeeper Pro](https://clawkeeper.dev/claude-code) for fleet-wide visibility, custom policies, and compliance reporting.
 
-```bash
-claude --plugin-dir ./plugin
-```
+## All Commands
 
-## License
-
-MIT — by [RAD Security](https://rad.security)
+| Command | Description |
+|---|---|
+| `/clawkeeper-code:setup` | Check status, configure warn/block mode |
+| `/clawkeeper-code:connect` | Connect your Clawkeeper account |
+| `/clawkeeper-code:audit` | Claude Code setup compliance audit |
+| `/clawkeeper-code:inspect` | Audit installed plugins for threats |
+| `/clawkeeper-code:secrets` | Scan for exposed secrets |
+| `/clawkeeper-code:recap` | Session activity summary |
+| `/clawkeeper-code:scan` | Run host security scanner |
+| `/clawkeeper-code:status` | Shield status and stats |
+| `/clawkeeper-code:policies` | View org security policies |
