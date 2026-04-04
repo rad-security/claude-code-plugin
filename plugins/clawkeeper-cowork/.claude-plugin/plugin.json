@@ -7,7 +7,6 @@
   "repository": "https://github.com/rad-security/claude-code-plugin",
   "license": "MIT",
   "keywords": ["security", "compliance", "dlp", "data-classification", "audit"],
-  "agents": "./agents/",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "hooks": {
