@@ -12,7 +12,7 @@
   "plugins": [
     {
       "name": "clawkeeper-code",
-      "source": "./clawkeeper-code",
+      "source": "clawkeeper-code",
       "description": "Security scanning and threat detection for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ patterns. Audits your setup, scans for secrets, inspects plugins for supply chain attacks. Works immediately — no account required.",
       "version": "1.0.0",
       "author": { "name": "RAD Security" },
@@ -23,7 +23,7 @@
     },
     {
       "name": "clawkeeper-cowork",
-      "source": "./clawkeeper-cowork",
+      "source": "clawkeeper-cowork",
       "description": "Data governance and compliance for Cowork. Classifies sensitive data, detects PII, enforces org policies, verifies external recipients, and maintains a full audit trail. Works immediately — no account required.",
       "version": "1.0.0",
       "author": { "name": "RAD Security" },
