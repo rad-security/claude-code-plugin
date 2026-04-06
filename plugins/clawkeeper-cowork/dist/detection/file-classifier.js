@@ -6,6 +6,7 @@
  * classification level.
  */
 import * as fs from "node:fs";
+import { homedir } from "node:os";
 import * as path from "node:path";
 import { scanForPII, classifyFromPII } from "./pii-patterns.js";
 // ── Extension maps ─────────────────────────────────────────────────────
@@ -83,6 +84,12 @@ function classifyByExtension(filePath) {
  *    level is higher than the extension-based level.
  */
 export function classifyFile(filePath) {
+    // Expand ~ to home directory
+    const resolvedPath = filePath.startsWith("~/")
+        ? path.join(homedir(), filePath.slice(1))
+        : filePath.startsWith("~")
+            ? path.join(homedir(), filePath.slice(1))
+            : filePath;
     const baseClassification = classifyByExtension(filePath);
     const ext = path.extname(filePath).toLowerCase();
     const detectedTypes = [];
@@ -94,7 +101,7 @@ export function classifyFile(filePath) {
     // Stat the file — if it doesn't exist or is too large, skip scanning
     let stat;
     try {
-        stat = fs.statSync(filePath);
+        stat = fs.statSync(resolvedPath);
     }
     catch {
         return { classification: baseClassification, contains: detectedTypes, detectedTypes, scannedContent };
@@ -105,7 +112,7 @@ export function classifyFile(filePath) {
     // Read the first SCAN_BYTES of the file
     let content;
     try {
-        const fd = fs.openSync(filePath, "r");
+        const fd = fs.openSync(resolvedPath, "r");
         const buffer = Buffer.alloc(Math.min(SCAN_BYTES, stat.size));
         fs.readSync(fd, buffer, 0, buffer.length, 0);
         fs.closeSync(fd);

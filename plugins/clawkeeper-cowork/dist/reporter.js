@@ -24,7 +24,9 @@ export class CoworkReporter {
     report(event) {
         this.logLocal(event);
         this.queue.push(event);
-        if (this.queue.length >= FLUSH_THRESHOLD) {
+        // Flush immediately if API key is present — don't wait for batch threshold
+        // or timer. MCP tool calls are infrequent, so each event matters.
+        if (this.config.apiKey) {
             void this.flush();
         }
     }
@@ -83,13 +85,18 @@ export class CoworkReporter {
             return;
         try {
             const url = `${this.config.apiUrl}/shield/events`;
+            // Inject hostname into every event (required by the API)
+            const enrichedBatch = batch.map((e) => ({
+                ...e,
+                hostname: e.hostname || this.config.hostname,
+            }));
             const response = await fetch(url, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${this.config.apiKey}`,
                 },
-                body: JSON.stringify({ events: batch }),
+                body: JSON.stringify({ events: enrichedBatch }),
             });
             if (response.ok)
                 return;
