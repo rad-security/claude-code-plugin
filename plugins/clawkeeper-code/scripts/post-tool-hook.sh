@@ -35,10 +35,12 @@ API_KEY=$(resolve_api_key) || true
 
 if [ -n "$API_KEY" ]; then
   # ---- API mode: forward to audit endpoint ----
+  HOSTNAME_VAL=$(hostname 2>/dev/null || printf 'unknown')
   curl -s --max-time 4 \
     -X POST "https://clawkeeper.dev/api/v1/claude-code/audit" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${API_KEY}" \
+    -H "X-Hostname: ${HOSTNAME_VAL}" \
     -d "$INPUT" >/dev/null 2>&1 || true
 
   # Always allow — audit is fire-and-forget
