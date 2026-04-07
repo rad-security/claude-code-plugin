@@ -1,7 +1,6 @@
 ---
 name: policies
 description: View organization security policies for Clawkeeper. Shows detection mode, blocked tools, blocked commands, path restrictions, and custom blocklists. Run when the user wants to see what policies are enforced, check security settings, or view org configuration.
-allowed-tools: Bash,Read
 ---
 
 # Clawkeeper Policies

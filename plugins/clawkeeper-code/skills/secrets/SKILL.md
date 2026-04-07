@@ -1,7 +1,6 @@
 ---
 name: secrets
 description: Scan the current working directory for exposed secrets, API keys, private keys, database credentials, and hardcoded tokens. Run when the user wants to find leaked credentials or check for secret exposure in their project. Never prints actual secret values.
-allowed-tools: Bash,Read,Glob,Grep
 ---
 
 # Clawkeeper Secret Scanner

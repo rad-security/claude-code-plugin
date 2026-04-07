@@ -1,7 +1,6 @@
 ---
 name: setup
 description: Guided onboarding for Clawkeeper. Run when the user wants to configure Clawkeeper, check their current mode (local/connected/push-hooks), enable or disable blocking mode, or get started with the plugin.
-allowed-tools: Bash,Read,Glob,Grep
 ---
 
 # Clawkeeper Setup

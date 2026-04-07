@@ -1,7 +1,6 @@
 ---
 name: audit
 description: Run a full Clawkeeper security audit of your Claude Code environment. Covers setup compliance, secret scanning, and plugin supply chain inspection in one unified report with a letter grade. Use when the user wants to check their security posture, run a security audit, or asks about security issues.
-allowed-tools: Bash,Read,Glob,Grep
 ---
 
 # Clawkeeper Claude Code Audit

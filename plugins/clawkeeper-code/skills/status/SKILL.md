@@ -1,7 +1,6 @@
 ---
 name: status
 description: Show Clawkeeper shield status including connection mode, threat statistics, and workstation info. Run when the user wants to see if Clawkeeper is active, check their connection, or view threat stats.
-allowed-tools: Bash,Read
 ---
 
 # Clawkeeper Status

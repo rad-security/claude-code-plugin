@@ -1,7 +1,6 @@
 ---
 name: inspect
 description: Audit all installed Claude Code plugins, skills, hooks, and MCP servers for malicious behavior. Checks for prompt injection, data exfiltration, credential theft, obfuscated code, and supply chain attacks. This is the plugin ecosystem security scanner. Run when the user wants to verify their installed plugins are safe.
-allowed-tools: Bash,Read,Glob,Grep
 ---
 
 # Clawkeeper Plugin Inspection

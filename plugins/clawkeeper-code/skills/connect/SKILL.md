@@ -1,7 +1,6 @@
 ---
 name: connect
 description: Connect Clawkeeper to a free account for dashboard visibility. Run when the user wants to authenticate, link their account, set up an API key, or connect to clawkeeper.dev.
-allowed-tools: Bash,Read
 ---
 
 # Clawkeeper Connect

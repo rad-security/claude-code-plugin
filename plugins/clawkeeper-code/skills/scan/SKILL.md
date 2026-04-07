@@ -1,7 +1,6 @@
 ---
 name: scan
 description: Run the Clawkeeper security scanner on the current host. Checks for macOS/Linux security misconfigurations, network settings, and prerequisites. Run when the user wants a full host security scan.
-allowed-tools: Bash,Read
 ---
 
 # Clawkeeper Host Security Scan

@@ -1,7 +1,6 @@
 ---
 name: recap
 description: Summarize the current Claude Code session from a security perspective. Shows tool call counts, files modified, bash commands run, and threats detected. Run when the user wants to review what happened during their session.
-allowed-tools: Bash,Read
 ---
 
 # Clawkeeper Session Recap
