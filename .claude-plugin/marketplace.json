@@ -11,7 +11,7 @@
       "name": "clawkeeper-code",
       "source": "./plugins/clawkeeper-code",
       "description": "Security scanning and threat detection for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ patterns. Audits your setup, scans for secrets, inspects plugins for supply chain attacks. Works immediately \u2014 no account required.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "RAD Security"
       },

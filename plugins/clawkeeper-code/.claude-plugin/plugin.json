@@ -1,6 +1,6 @@
 {
   "name": "clawkeeper-code",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Security scanning, compliance auditing, and threat detection for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ threat patterns. Audits your Claude Code setup for misconfigurations. Works immediately \u2014 no account required.",
   "author": {
     "name": "RAD Security",
@@ -16,6 +16,5 @@
     "threat-detection",
     "devsecops"
   ],
-  "hooks": "./hooks/hooks.json",
   "skills": "./skills/"
 }
