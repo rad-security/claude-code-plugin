@@ -20,15 +20,25 @@ curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
   -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
 ```
 
-If valid, also run the checkin to ensure this workstation is registered (it may not be if the key was stored mid-session):
+If valid, install hook shims (in case they're missing) and checkin:
 ```bash
+DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
+HOOKS_DIR="$DATA_DIR/hooks"
+mkdir -p "$HOOKS_DIR"
+
+PLUGIN_DIR="$(ls -d "$HOME/.claude/plugins/cache/clawkeeper/clawkeeper-code"/*/shims 2>/dev/null | tail -1)"
+if [ -n "$PLUGIN_DIR" ] && [ -d "$PLUGIN_DIR" ]; then
+  cp "$PLUGIN_DIR"/*.sh "$HOOKS_DIR/" 2>/dev/null
+  chmod +x "$HOOKS_DIR"/*.sh 2>/dev/null
+fi
+
 HOSTNAME_VAL=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
 OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
 CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
 CWD_VAL=$(pwd)
 
 curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")" \
+  -H "Authorization: Bearer $(cat "$DATA_DIR/api_key")" \
   -H "Content-Type: application/json" \
   -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\"}" 2>/dev/null
 ```
@@ -133,11 +143,40 @@ exit 1
 
 **CRITICAL: Never echo or log the raw API key in any output shown to the user. The script above stores it directly to file without displaying it.**
 
-## Step 5: Register Workstation Immediately
+## Step 5: Install Hook Shims and Register Workstation
 
-After the key is stored, register this machine as a workstation RIGHT NOW — don't wait for the next session. Run:
+After the key is stored, install hook shim scripts and register the workstation. This is CRITICAL — without the shims, hooks won't fire. Run:
 ```bash
-API_KEY=$(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null)
+DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
+HOOKS_DIR="$DATA_DIR/hooks"
+mkdir -p "$HOOKS_DIR"
+
+# Find the plugin's shims directory
+PLUGIN_DIR="$(ls -d "$HOME/.claude/plugins/cache/clawkeeper/clawkeeper-code"/*/shims 2>/dev/null | tail -1)"
+
+if [ -n "$PLUGIN_DIR" ] && [ -d "$PLUGIN_DIR" ]; then
+  cp "$PLUGIN_DIR"/*.sh "$HOOKS_DIR/" 2>/dev/null
+  chmod +x "$HOOKS_DIR"/*.sh 2>/dev/null
+  echo "SHIMS_INSTALLED"
+else
+  # Fallback: create shims inline if plugin cache structure is unexpected
+  for SCRIPT in pre-tool-hook.sh post-tool-hook.sh session-start.sh prompt-hook.sh; do
+    cat > "$HOOKS_DIR/$SCRIPT" << 'SHIM'
+#!/usr/bin/env bash
+set -euo pipefail
+P="$(ls -d "$HOME/.claude/plugins/cache/clawkeeper/clawkeeper-code"/*/scripts 2>/dev/null | tail -1)"
+[ -n "$P" ] && [ -f "$P/SCRIPT_NAME" ] && exec bash "$P/SCRIPT_NAME"
+echo '{}'
+SHIM
+    sed -i.bak "s/SCRIPT_NAME/$SCRIPT/g" "$HOOKS_DIR/$SCRIPT" 2>/dev/null || sed "s/SCRIPT_NAME/$SCRIPT/g" "$HOOKS_DIR/$SCRIPT" > "$HOOKS_DIR/$SCRIPT.tmp" && mv "$HOOKS_DIR/$SCRIPT.tmp" "$HOOKS_DIR/$SCRIPT"
+    rm -f "$HOOKS_DIR/$SCRIPT.bak" 2>/dev/null
+    chmod +x "$HOOKS_DIR/$SCRIPT"
+  done
+  echo "SHIMS_CREATED_INLINE"
+fi
+
+# Register workstation
+API_KEY=$(cat "$DATA_DIR/api_key" 2>/dev/null)
 HOSTNAME_VAL=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
 OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
 CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
@@ -150,7 +189,7 @@ curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin
 echo "CHECKIN_DONE"
 ```
 
-This ensures the workstation appears on the dashboard immediately after connecting, without requiring the user to restart Claude Code.
+This installs hook shims at a stable path (`~/.clawkeeper-plugin/hooks/`) and registers the workstation. The shims dynamically find the cached plugin scripts, bypassing the broken `$CLAUDE_PLUGIN_ROOT` variable. **The user must restart Claude Code after this step for hooks to activate.**
 
 ### Handle poll results:
 
