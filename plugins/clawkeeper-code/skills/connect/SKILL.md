@@ -20,12 +20,26 @@ curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
   -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
 ```
 
-If valid, display:
+If valid, also run the checkin to ensure this workstation is registered (it may not be if the key was stored mid-session):
+```bash
+HOSTNAME_VAL=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
+OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
+CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
+CWD_VAL=$(pwd)
+
+curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \
+  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")" \
+  -H "Content-Type: application/json" \
+  -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\"}" 2>/dev/null
+```
+
+Then display:
 ```
 Already connected!
 
 Organization: [org_name]
 Plan: [plan]
+Workstation: [hostname] registered
 
 Your hooks are API-powered. Run /clawkeeper:status for details.
 ```
@@ -119,14 +133,34 @@ exit 1
 
 **CRITICAL: Never echo or log the raw API key in any output shown to the user. The script above stores it directly to file without displaying it.**
 
+## Step 5: Register Workstation Immediately
+
+After the key is stored, register this machine as a workstation RIGHT NOW — don't wait for the next session. Run:
+```bash
+API_KEY=$(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null)
+HOSTNAME_VAL=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
+OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
+CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
+CWD_VAL=$(pwd)
+
+curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\"}" 2>/dev/null
+echo "CHECKIN_DONE"
+```
+
+This ensures the workstation appears on the dashboard immediately after connecting, without requiring the user to restart Claude Code.
+
 ### Handle poll results:
 
-**If approved** (output starts with `APPROVED`), display:
+**If approved** (output starts with `APPROVED`), run Step 5 (the checkin), then display:
 ```
 Connected!
 
 Organization: [org_name]
 Plan: [plan]
+Workstation: [hostname] registered
 
 Your Clawkeeper hooks are now API-powered.
 Dashboard: https://clawkeeper.dev/dashboard
