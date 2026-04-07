@@ -49,10 +49,48 @@ if [ -n "$API_KEY" ]; then
   OS_VAL=$(uname -s 2>/dev/null || printf 'unknown')
   CLAUDE_VERSION="${CLAUDE_CODE_VERSION:-unknown}"
 
-  CHECKIN_BODY=$(printf '{"hostname":"%s","os":"%s","claude_version":"%s"}' \
+  # Extract session_id and cwd from Claude Code's native payload so the
+  # server can link subsequent HTTP hook events back to this host.
+  # Uses python3 for reliable JSON parsing with grep as fallback.
+  SESSION_ID=""
+  CWD_VAL=""
+  if [ -n "$INPUT" ]; then
+    if command -v python3 &>/dev/null; then
+      eval "$(printf '%s' "$INPUT" | python3 -c "
+import json, sys, re
+try:
+    d = json.load(sys.stdin)
+    sid = d.get('session_id', '')
+    cwd = d.get('cwd', '')
+    if sid and re.fullmatch(r'[a-zA-Z0-9_-]+', str(sid)):
+        print(f'SESSION_ID={sid}')
+    if cwd and re.fullmatch(r'[a-zA-Z0-9_./ -]+', str(cwd)):
+        print(f'CWD_VAL=\"{cwd}\"')
+except:
+    pass
+" 2>/dev/null)" || true
+    fi
+    if [ -z "$SESSION_ID" ]; then
+      SESSION_ID=$(printf '%s' "$INPUT" | grep -Eo '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -Eo '"[^"]*"$' | tr -d '"') || true
+    fi
+    if [ -z "$CWD_VAL" ]; then
+      CWD_VAL=$(printf '%s' "$INPUT" | grep -Eo '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | grep -Eo '"[^"]*"$' | tr -d '"') || true
+    fi
+  fi
+
+  EXTRA_FIELDS=""
+  if [ -n "$SESSION_ID" ]; then
+    EXTRA_FIELDS=$(printf '%s,"session_id":"%s"' "$EXTRA_FIELDS" "$(_json_escape "$SESSION_ID")")
+  fi
+  if [ -n "$CWD_VAL" ]; then
+    EXTRA_FIELDS=$(printf '%s,"cwd":"%s"' "$EXTRA_FIELDS" "$(_json_escape "$CWD_VAL")")
+  fi
+
+  CHECKIN_BODY=$(printf '{"hostname":"%s","os":"%s","claude_version":"%s"%s}' \
     "$(_json_escape "$HOSTNAME_VAL")" \
     "$(_json_escape "$OS_VAL")" \
-    "$(_json_escape "$CLAUDE_VERSION")")
+    "$(_json_escape "$CLAUDE_VERSION")" \
+    "$EXTRA_FIELDS")
 
   RESPONSE=$(printf '%s' "$CHECKIN_BODY" | curl -s --max-time 10 --fail-with-body \
     -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \

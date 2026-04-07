@@ -1,6 +1,6 @@
 {
-  "name": "clawkeeper",
-  "version": "1.0.0",
+  "name": "clawkeeper-code",
+  "version": "1.0.2",
   "description": "Security scanning, compliance auditing, and threat detection for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ threat patterns. Audits your Claude Code setup for misconfigurations. Works immediately — no account required.",
   "author": {
     "name": "RAD Security",

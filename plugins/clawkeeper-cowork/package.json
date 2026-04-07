@@ -1,15 +1,43 @@
 {
   "name": "clawkeeper-cowork",
-  "version": "1.0.0",
-  "description": "Clawkeeper security MCP server for Claude Cowork",
+  "version": "1.0.1",
+  "description": "Clawkeeper security MCP server for Claude Cowork — data classification, PII detection, compliance auditing",
   "type": "module",
   "main": "dist/server.js",
-  "bin": { "clawkeeper-cowork": "dist/server.js" },
+  "bin": {
+    "clawkeeper-cowork": "dist/server.js"
+  },
+  "files": [
+    "dist/**/*"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "claude",
+    "cowork",
+    "mcp",
+    "security",
+    "compliance",
+    "pii",
+    "dlp",
+    "audit",
+    "clawkeeper"
+  ],
+  "author": {
+    "name": "RAD Security",
+    "email": "support@rad.security",
+    "url": "https://rad.security"
+  },
+  "homepage": "https://clawkeeper.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rad-security/claude-code-plugin"
+  },
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "zod": "^3.23.0"
