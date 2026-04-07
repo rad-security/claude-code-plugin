@@ -1,7 +1,6 @@
 ---
 name: audit
 description: Run a Clawkeeper security audit of the current working directory. Scans for sensitive files, PII exposure, secret leaks, and policy violations. Use when the user wants to check security posture or run a security audit.
-allowed-tools: Bash,Read,Glob,Grep,clawkeeper_check_sensitivity,clawkeeper_classify_data,clawkeeper_log_action
 ---
 
 # Clawkeeper Cowork Audit

@@ -1,14 +1,13 @@
 {
-  "name": "clawkeeper",
+  "name": "clawkeeper-cowork",
   "version": "1.0.0",
-  "description": "Security, compliance auditing, and data governance for Claude. Classifies sensitive data, enforces org policies, and maintains a full audit trail. Works immediately — no account required.",
+  "description": "Security, compliance auditing, and data governance for Claude Cowork. PII detection, file sensitivity classification, recipient verification, and full audit trail. Works immediately — no account required.",
   "author": { "name": "RAD Security", "email": "support@rad.security" },
   "homepage": "https://clawkeeper.dev",
   "repository": "https://github.com/clawkeeper/cowork-connector",
   "license": "MIT",
   "keywords": ["security", "compliance", "dlp", "data-classification", "audit"],
   "agents": "./agents/",
-  "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "hooks": {
     "PreToolUse": [
