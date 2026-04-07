@@ -16,7 +16,7 @@
 #   fi
 has_clawkeeper_http_hooks() {
   local file
-  for file in ".claude/settings.json" ".claude/settings.local.json"; do
+  for file in ".claude/settings.json" ".claude/settings.local.json" "$HOME/.claude/settings.json"; do
     if [ ! -f "$file" ]; then
       continue
     fi

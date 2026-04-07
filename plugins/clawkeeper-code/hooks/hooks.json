@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash $HOME/.clawkeeper-plugin/hooks/prompt-hook.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/prompt-hook.sh",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash $HOME/.clawkeeper-plugin/hooks/pre-tool-hook.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre-tool-hook.sh",
             "timeout": 5
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash $HOME/.clawkeeper-plugin/hooks/post-tool-hook.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-hook.sh",
             "timeout": 5
           }
         ]
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash $HOME/.clawkeeper-plugin/hooks/session-start.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh",
             "timeout": 10
           }
         ]

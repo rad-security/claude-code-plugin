@@ -16,6 +16,24 @@ cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null
 
 If a key is found and non-empty, the user is in **connected mode**. Otherwise, **local mode**.
 
+### Determine hook delivery method
+Run:
+```bash
+HOOK_SOURCE="plugin"
+if grep -q 'clawkeeper\.dev' "$HOME/.claude/settings.json" 2>/dev/null; then
+  HOOK_SOURCE="user_http"
+fi
+for f in ".claude/settings.json" ".claude/settings.local.json"; do
+  if [ -f "$f" ] && grep -q 'clawkeeper\.dev' "$f" 2>/dev/null; then
+    HOOK_SOURCE="repo_http"
+    break
+  fi
+done
+echo "HOOK_SOURCE:$HOOK_SOURCE"
+```
+
+Capture the value after `HOOK_SOURCE:` for use in the status output.
+
 ## Step 2: Display Status
 
 ### Local Mode
@@ -39,6 +57,7 @@ Clawkeeper Shield Status
 Mode: Local (no account connected)
 Detection: [warn|block] mode
 Shield: Active — using bundled threat patterns
+Hooks: [if user_http: "User-level HTTP hooks (full coverage)" | if repo_http: "Repo-level HTTP hooks (full coverage)" | if plugin: "Plugin hooks only (limited — run /clawkeeper-code:connect to upgrade)"]
 
 Session Stats:
   Total threats detected: [total_blocks or 0]
@@ -76,6 +95,7 @@ Mode: Connected
 Organization: [org_name]
 Plan: [plan]
 Shield: Active — API-powered detection
+Hooks: [if user_http: "User-level HTTP hooks (full coverage)" | if repo_http: "Repo-level HTTP hooks (full coverage)" | if plugin: "Plugin hooks only (limited — run /clawkeeper-code:connect to upgrade)"]
 
 Workstations: [online_count] online / [total_count] total
 Recent Events: [event_count] in last 24h

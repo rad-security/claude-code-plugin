@@ -14,6 +14,14 @@ Check these in order:
 ### Check for push-hooks (security team deployment)
 Read `.claude/settings.json` in the current project directory. Look for any hooks with URLs containing `clawkeeper.dev`. If found, the user is in **push-hooks mode** — their security team has already deployed Clawkeeper.
 
+### Check for user-level HTTP hooks (connected via plugin)
+Run:
+```bash
+grep -q 'clawkeeper\.dev' "$HOME/.claude/settings.json" 2>/dev/null && echo "USER_HOOKS" || echo "NO_USER_HOOKS"
+```
+
+If `USER_HOOKS`, the user is in **user-level hooks mode**. This is the best state.
+
 ### Check for API key (connected mode)
 Check if the file `${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key` exists and is non-empty. Use Bash:
 ```
@@ -40,6 +48,32 @@ via your organization's API. No additional setup needed.
 
 Run /clawkeeper:status to see your shield status.
 Run /clawkeeper:audit to check your Claude Code configuration.
+```
+
+### If user-level hooks mode:
+Validate the key by running:
+```bash
+curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
+  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+```
+
+If the request succeeds, display:
+```
+Clawkeeper Setup
+
+Mode: Connected (user-level hooks)
+Hooks: Active — installed in ~/.claude/settings.json
+Source: Installed via /clawkeeper-code:connect
+Coverage: Prompts, tool calls, and sessions
+
+Organization: [org_name from response]
+Plan: [plan from response]
+
+Dashboard: https://clawkeeper.dev/dashboard
+
+Run /clawkeeper-code:status for detailed shield stats.
+Run /clawkeeper-code:audit to check your Claude Code setup.
+Run /clawkeeper-code:disconnect to remove hooks and unlink.
 ```
 
 ### If connected mode:

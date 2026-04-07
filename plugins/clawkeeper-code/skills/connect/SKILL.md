@@ -1,11 +1,11 @@
 ---
 name: connect
-description: Connect Clawkeeper to a free account for dashboard visibility. Run when the user wants to authenticate, link their account, set up an API key, or connect to clawkeeper.dev.
+description: Connect Clawkeeper to your account for dashboard visibility. Run when the user wants to authenticate, link their account, set up an API key, or connect to clawkeeper.dev.
 ---
 
 # Clawkeeper Connect
 
-You are helping the user connect their Clawkeeper plugin to their clawkeeper.dev account using device authorization.
+You are helping the user connect their Clawkeeper plugin to their clawkeeper.dev account using device authorization. After authentication, you install HTTP hooks into `~/.claude/settings.json` so Claude Code natively sends hook events to the Clawkeeper API.
 
 ## Step 1: Check Existing Connection
 
@@ -20,38 +20,32 @@ curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
   -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
 ```
 
-If valid, install hook shims (in case they're missing) and checkin:
+If valid, check if HTTP hooks are already installed:
 ```bash
-DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
-HOOKS_DIR="$DATA_DIR/hooks"
-mkdir -p "$HOOKS_DIR"
-
-PLUGIN_DIR="$(ls -d "$HOME/.claude/plugins/cache/clawkeeper/clawkeeper-code"/*/shims 2>/dev/null | tail -1)"
-if [ -n "$PLUGIN_DIR" ] && [ -d "$PLUGIN_DIR" ]; then
-  cp "$PLUGIN_DIR"/*.sh "$HOOKS_DIR/" 2>/dev/null
-  chmod +x "$HOOKS_DIR"/*.sh 2>/dev/null
-fi
-
-HOSTNAME_VAL=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
-OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
-CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
-CWD_VAL=$(pwd)
-
-curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \
-  -H "Authorization: Bearer $(cat "$DATA_DIR/api_key")" \
-  -H "Content-Type: application/json" \
-  -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\"}" 2>/dev/null
+grep -q 'clawkeeper\.dev' "$HOME/.claude/settings.json" 2>/dev/null && echo "HOOKS_EXIST" || echo "NO_HOOKS"
 ```
 
-Then display:
+- If `HOOKS_EXIST`: run Step 5 (refresh hooks) then Step 6 (checkin), then display:
 ```
-Already connected!
+Already connected! Hooks refreshed.
 
 Organization: [org_name]
 Plan: [plan]
 Workstation: [hostname] registered
 
-Your hooks are API-powered. Run /clawkeeper:status for details.
+Dashboard: https://clawkeeper.dev/dashboard
+```
+
+- If `NO_HOOKS`: run Step 5 (install hooks) then Step 6 (checkin), then display:
+```
+Connected! Hooks installed.
+
+Organization: [org_name]
+Plan: [plan]
+Workstation: [hostname] registered
+
+Restart Claude Code to activate hooks.
+Dashboard: https://clawkeeper.dev/dashboard
 ```
 
 Then ask if they want to reconnect with a different account. If not, stop here.
@@ -72,7 +66,14 @@ Could not reach clawkeeper.dev. Check your network connection and try again.
 Having trouble? You can also paste an API key manually from:
   https://clawkeeper.dev/settings#api-keys
 ```
-Then stop.
+If the user pastes a key manually, store it:
+```bash
+DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
+mkdir -p "$DATA_DIR"
+printf '%s' "PASTED_KEY_HERE" > "$DATA_DIR/api_key"
+chmod 600 "$DATA_DIR/api_key"
+```
+Then skip to Step 5.
 
 Parse the response to extract `code`, `verify_url`, and `poll_url`.
 
@@ -143,57 +144,90 @@ exit 1
 
 **CRITICAL: Never echo or log the raw API key in any output shown to the user. The script above stores it directly to file without displaying it.**
 
-## Step 5: Install Hook Shims and Register Workstation
+## Step 5: Install HTTP Hooks
 
-After the key is stored, install hook shim scripts and register the workstation. This is CRITICAL — without the shims, hooks won't fire. Run:
+After the key is stored, install HTTP hooks into `~/.claude/settings.json`. This is CRITICAL — without the hooks, Clawkeeper cannot monitor Claude Code activity. Run this single command:
+
 ```bash
-DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
-HOOKS_DIR="$DATA_DIR/hooks"
-mkdir -p "$HOOKS_DIR"
+python3 << 'PYEOF'
+import json, os, sys
 
-# Find the plugin's shims directory
-PLUGIN_DIR="$(ls -d "$HOME/.claude/plugins/cache/clawkeeper/clawkeeper-code"/*/shims 2>/dev/null | tail -1)"
+api_key_path = os.path.expanduser("~/.clawkeeper-plugin/api_key")
+settings_path = os.path.expanduser("~/.claude/settings.json")
 
-if [ -n "$PLUGIN_DIR" ] && [ -d "$PLUGIN_DIR" ]; then
-  cp "$PLUGIN_DIR"/*.sh "$HOOKS_DIR/" 2>/dev/null
-  chmod +x "$HOOKS_DIR"/*.sh 2>/dev/null
-  echo "SHIMS_INSTALLED"
-else
-  # Fallback: create shims inline if plugin cache structure is unexpected
-  for SCRIPT in pre-tool-hook.sh post-tool-hook.sh session-start.sh prompt-hook.sh; do
-    cat > "$HOOKS_DIR/$SCRIPT" << 'SHIM'
-#!/usr/bin/env bash
-set -euo pipefail
-P="$(ls -d "$HOME/.claude/plugins/cache/clawkeeper/clawkeeper-code"/*/scripts 2>/dev/null | tail -1)"
-[ -n "$P" ] && [ -f "$P/SCRIPT_NAME" ] && exec bash "$P/SCRIPT_NAME"
-echo '{}'
-SHIM
-    sed -i.bak "s/SCRIPT_NAME/$SCRIPT/g" "$HOOKS_DIR/$SCRIPT" 2>/dev/null || sed "s/SCRIPT_NAME/$SCRIPT/g" "$HOOKS_DIR/$SCRIPT" > "$HOOKS_DIR/$SCRIPT.tmp" && mv "$HOOKS_DIR/$SCRIPT.tmp" "$HOOKS_DIR/$SCRIPT"
-    rm -f "$HOOKS_DIR/$SCRIPT.bak" 2>/dev/null
-    chmod +x "$HOOKS_DIR/$SCRIPT"
-  done
-  echo "SHIMS_CREATED_INLINE"
-fi
+try:
+    with open(api_key_path) as f:
+        api_key = f.read().strip()
+except FileNotFoundError:
+    print("ERROR_NO_KEY")
+    sys.exit(1)
+if not api_key:
+    print("ERROR_EMPTY_KEY")
+    sys.exit(1)
 
-# Register workstation
-API_KEY=$(cat "$DATA_DIR/api_key" 2>/dev/null)
+os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+try:
+    with open(settings_path) as f:
+        settings = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    settings = {}
+
+hooks = settings.setdefault("hooks", {})
+
+ck_hooks = {
+    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/evaluate", "headers": {"Authorization": "Bearer " + api_key}}]}],
+    "PreToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/evaluate", "headers": {"Authorization": "Bearer " + api_key}}]}],
+    "PostToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/audit", "headers": {"Authorization": "Bearer " + api_key}}]}],
+    "SessionStart": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/checkin", "headers": {"Authorization": "Bearer " + api_key}}]}],
+}
+
+for event_name, new_entries in ck_hooks.items():
+    existing = hooks.get(event_name, [])
+    cleaned = [g for g in existing if not any("clawkeeper.dev" in (h.get("url") or "") for h in g.get("hooks", []))]
+    cleaned.extend(new_entries)
+    hooks[event_name] = cleaned
+
+settings["hooks"] = hooks
+with open(settings_path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+
+print("HOOKS_WRITTEN")
+
+for repo_file in [".claude/settings.json", ".claude/settings.local.json"]:
+    if os.path.isfile(repo_file):
+        try:
+            content = open(repo_file).read()
+            if '"http"' in content and "clawkeeper.dev" in content:
+                print("REPO_HOOKS_DETECTED")
+                break
+        except:
+            pass
+PYEOF
+```
+
+If the output contains `ERROR_NO_KEY` or `ERROR_EMPTY_KEY`, display an error and ask the user to reconnect.
+
+## Step 6: Register Workstation
+
+After hooks are installed, register the workstation:
+```bash
+API_KEY=$(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null)
 HOSTNAME_VAL=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
 OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
 CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
 CWD_VAL=$(pwd)
-
 curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\"}" 2>/dev/null
+echo ""
 echo "CHECKIN_DONE"
 ```
 
-This installs hook shims at a stable path (`~/.clawkeeper-plugin/hooks/`) and registers the workstation. The shims dynamically find the cached plugin scripts, bypassing the broken `$CLAUDE_PLUGIN_ROOT` variable. **The user must restart Claude Code after this step for hooks to activate.**
-
 ### Handle poll results:
 
-**If approved** (output starts with `APPROVED`), run Step 5 (the checkin), then display:
+**If approved** (output starts with `APPROVED`), run Step 5 then Step 6, then display:
 ```
 Connected!
 
@@ -201,8 +235,15 @@ Organization: [org_name]
 Plan: [plan]
 Workstation: [hostname] registered
 
-Your Clawkeeper hooks are now API-powered.
+HTTP hooks installed to ~/.claude/settings.json
+Restart Claude Code to activate hooks.
 Dashboard: https://clawkeeper.dev/dashboard
+```
+
+**If `REPO_HOOKS_DETECTED`** was printed by Step 5, add this note:
+```
+Note: This repo also has Clawkeeper hooks in its local settings.
+You may see duplicate events in this repo — this is harmless.
 ```
 
 **If expired** (output is `EXPIRED`), display:
@@ -228,4 +269,5 @@ Having trouble? You can also paste an API key manually from:
 - The device code (e.g. A1B2-C3D4) is safe to display — it is NOT the API key
 - The polling loop runs as a single bash command to avoid multiple tool calls
 - If the register endpoint is unreachable, always offer the manual key paste fallback
+- After connecting, tell the user to RESTART Claude Code for hooks to activate
 - This is the only skill that makes network calls by design
