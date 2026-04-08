@@ -36,7 +36,7 @@ API_KEY=$(resolve_api_key) || true
 
 if [ -n "$API_KEY" ]; then
   # ---- API mode: forward to Clawkeeper evaluate endpoint ----
-  HOSTNAME_VAL=$(hostname 2>/dev/null || printf 'unknown')
+  HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
   RESPONSE=$(printf '%s' "$INPUT" | curl -s --max-time 4 --fail-with-body \
     -X POST "https://clawkeeper.dev/api/v1/claude-code/evaluate" \
     -H "Content-Type: application/json" \

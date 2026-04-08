@@ -45,7 +45,7 @@ API_KEY=$(resolve_api_key) || true
 
 if [ -n "$API_KEY" ]; then
   # ---- API mode: check in with the server ----
-  HOSTNAME_VAL=$(hostname 2>/dev/null || printf 'unknown')
+  HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
   OS_VAL=$(uname -s 2>/dev/null || printf 'unknown')
   CLAUDE_VERSION="${CLAUDE_CODE_VERSION:-unknown}"
 

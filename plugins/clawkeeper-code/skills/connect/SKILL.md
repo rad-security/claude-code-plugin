@@ -213,7 +213,7 @@ If the output contains `ERROR_NO_KEY` or `ERROR_EMPTY_KEY`, display an error and
 After hooks are installed, register the workstation:
 ```bash
 API_KEY=$(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null)
-HOSTNAME_VAL=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
+HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || echo "unknown")
 OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
 CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
 CWD_VAL=$(pwd)
