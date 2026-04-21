@@ -109,7 +109,9 @@ If the output is already formatted text, display it as-is.
 
 Check if an API key exists:
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/api_key" 2>/dev/null
 ```
 
 If connected, mention that results are uploaded to the dashboard:

@@ -23,9 +23,11 @@ grep -q 'clawkeeper\.dev' "$HOME/.claude/settings.json" 2>/dev/null && echo "USE
 If `USER_HOOKS`, the user is in **user-level hooks mode**. This is the best state.
 
 ### Check for API key (connected mode)
-Check if the file `${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key` exists and is non-empty. Use Bash:
-```
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null
+Check if the API key file exists and is non-empty. Use Bash:
+```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/api_key" 2>/dev/null
 ```
 If it contains a key, the user is in **connected mode**.
 
@@ -53,8 +55,11 @@ Run /clawkeeper:audit to check your Claude Code configuration.
 ### If user-level hooks mode:
 Validate the key by running:
 ```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key")
 curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 If the request succeeds, display:
@@ -79,8 +84,11 @@ Run /clawkeeper-code:disconnect to remove hooks and unlink.
 ### If connected mode:
 Validate the key by running:
 ```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key")
 curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 If the request succeeds, parse the JSON response and display the org name, plan, and workstation count. Format:
@@ -129,7 +137,9 @@ Run /clawkeeper:connect to link your free account.
 
 After showing the status, check the current blocking mode. Read the config file:
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/config.json" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/config.json" 2>/dev/null
 ```
 
 If the file exists, parse the `mode` field. If it doesn't exist, the default is `warn`.
@@ -145,11 +155,15 @@ Would you like to switch to [the other mode]?
 
 If the user wants to change modes, write the config file:
 ```bash
-mkdir -p "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+mkdir -p "$CK_DIR"
 ```
 Then use Bash to write the JSON:
 ```bash
-printf '{"mode":"%s","updated_at":"%s"}\n' "[warn|block]" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/config.json"
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+printf '{"mode":"%s","updated_at":"%s"}\n' "[warn|block]" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$CK_DIR/config.json"
 ```
 
 Confirm the change:

@@ -11,13 +11,18 @@ You are helping the user connect their Clawkeeper plugin to their clawkeeper.dev
 
 First check if an API key already exists:
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/api_key" 2>/dev/null
 ```
 
 If a key exists, validate it:
 ```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key")
 curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 If valid, check if HTTP hooks are already installed:
@@ -68,7 +73,8 @@ Having trouble? You can also paste an API key manually from:
 ```
 If the user pastes a key manually, store it:
 ```bash
-DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
+DATA_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && DATA_DIR="$CLAUDE_PLUGIN_DATA"
 mkdir -p "$DATA_DIR"
 printf '%s' "PASTED_KEY_HERE" > "$DATA_DIR/api_key"
 chmod 600 "$DATA_DIR/api_key"
@@ -110,7 +116,8 @@ Waiting for approval...
 Poll every 3 seconds for up to 100 seconds (~33 attempts):
 ```bash
 CODE="[code from register response]"
-DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}"
+DATA_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && DATA_DIR="$CLAUDE_PLUGIN_DATA"
 ATTEMPTS=0
 MAX_ATTEMPTS=33
 
@@ -212,7 +219,9 @@ If the output contains `ERROR_NO_KEY` or `ERROR_EMPTY_KEY`, display an error and
 
 After hooks are installed, register the workstation:
 ```bash
-API_KEY=$(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null)
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key" 2>/dev/null)
 HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || echo "unknown")
 OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
 CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
