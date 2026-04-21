@@ -7,6 +7,13 @@ description: Guided onboarding for Clawkeeper. Run when the user wants to config
 
 You are running the Clawkeeper setup wizard. Determine the user's current mode and guide them accordingly.
 
+## Step 0: Parse Arguments
+
+Check the user's slash command invocation for flags:
+
+- If the invocation includes `--local` (either `/clawkeeper-code:setup --local` or `--local` anywhere in the args): the user has explicitly opted into local-only mode. Set `OPTED_LOCAL=true` and remember this for Step 2.
+- Otherwise: `OPTED_LOCAL=false`.
+
 ## Step 1: Determine Current Mode
 
 Check these in order:
@@ -31,8 +38,11 @@ cat "$CK_DIR/api_key" 2>/dev/null
 ```
 If it contains a key, the user is in **connected mode**.
 
-### Otherwise: local mode
-If neither push-hooks nor an API key are found, the user is in **local-only mode**.
+### Otherwise: disconnected OR local mode
+If none of the above matched, branch on the `OPTED_LOCAL` flag from Step 0:
+
+- `OPTED_LOCAL=true` → the user is in **local-only mode** (explicit opt-in). Proceed to the Local Mode display in Step 2.
+- `OPTED_LOCAL=false` → the user is in **disconnected mode** — hooks are not active and there is no account linked. Do NOT treat this as a success state. Proceed to the Disconnected Mode display in Step 2 and stop before Step 3.
 
 ## Step 2: Show Status Based on Mode
 
@@ -109,33 +119,53 @@ Run /clawkeeper:audit to check your Claude Code configuration.
 
 If the request fails, note the key may be invalid and suggest running `/clawkeeper:connect` again.
 
-### If local mode:
+### If disconnected mode (default when no hooks and no API key, and --local was NOT passed):
+Display exactly this block and then **stop**. Do not continue to Step 3. Do not list the six sub-commands — listing them implies "you're done", which is the bug this gate is closing.
+
+```
+Clawkeeper Setup
+
+Status: Not connected
+
+No hooks are active and no account is linked, so nothing is being
+monitored yet. Setup is not complete.
+
+  Connect now:   /clawkeeper-code:connect
+  Local only:    /clawkeeper-code:setup --local   (bundled detection, no dashboard)
+
+Without connecting, threats won't surface in your dashboard at
+https://clawkeeper.dev/dashboard and the plugin won't contribute to
+fleet visibility. Local-only is a valid choice, but it's a deliberate
+opt-in, not the default.
+```
+
+### If local mode (the user explicitly passed --local):
 Display:
 ```
 Clawkeeper Setup
 
-Mode: Local (no account)
-Hooks: Active — using bundled threat detection
+Mode: Local-only (opted in via --local)
+Hooks: Bundled threat detection, no network calls
+Account: Not linked
 
-What you get right now (no account needed):
+What's active:
   - Threat detection for dangerous commands (warn mode)
-  - /clawkeeper:audit — grade your Claude Code security setup
-  - /clawkeeper:secrets — scan for exposed secrets
-  - /clawkeeper:inspect — audit installed plugins for threats
-  - /clawkeeper:recap — session activity summary
-  - /clawkeeper:scan — run a full host security scan
+  - /clawkeeper-code:audit — grade your Claude Code security setup
+  - /clawkeeper-code:secrets — scan for exposed secrets
+  - /clawkeeper-code:inspect — audit installed plugins for threats
+  - /clawkeeper-code:recap — session activity summary
+  - /clawkeeper-code:scan — run a full host security scan
 
-Want more? Connect your free account for:
-  - Dashboard with full threat feed
-  - Scan history and trend tracking
-  - Setup audit tracking over time
-
-Run /clawkeeper:connect to link your free account.
+You're running without a dashboard. If you change your mind later,
+run /clawkeeper-code:connect to link a free account — no reinstall
+needed.
 ```
 
 ## Step 3: Blocking Mode Configuration
 
-After showing the status, check the current blocking mode. Read the config file:
+**Skip this step entirely if the user is in disconnected mode** (Step 1's "disconnected OR local" branch with `OPTED_LOCAL=false`). There is no plugin activity to configure, and nudging warn-vs-block would imply the user is set up when they are not.
+
+After showing the status (for push-hooks, user-level-hooks, connected, or `--local` opted-in modes), check the current blocking mode. Read the config file:
 ```bash
 CK_DIR="$HOME/.clawkeeper-plugin"
 [ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
@@ -174,6 +204,8 @@ Detection mode updated to [warn|block].
 ```
 
 ## Important Notes
-- Never make network calls in local mode except to validate an existing key in connected mode
-- Keep the output concise and actionable
-- Always suggest next steps (relevant slash commands)
+- Never make network calls in local mode or disconnected mode. The only network call this skill makes is to validate an existing API key in connected / user-level-hooks mode.
+- Disconnected mode is NOT a success state. Never list sub-commands or walk the user through warn/block config when they are disconnected — doing so implied completeness in the old version of this skill and caused users to assume they were set up when they weren't.
+- `--local` is an explicit opt-in. Do not infer it from context. If the user has neither connected nor passed `--local`, they are disconnected.
+- Keep the output concise and actionable.
+- Always suggest next steps (relevant slash commands) when in an active mode.
