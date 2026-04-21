@@ -11,7 +11,9 @@ You are producing a security-aware summary of the current Claude Code session by
 
 Check for the session log file:
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/sessions/current.jsonl" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/sessions/current.jsonl" 2>/dev/null
 ```
 
 ### If the file does not exist or is empty:

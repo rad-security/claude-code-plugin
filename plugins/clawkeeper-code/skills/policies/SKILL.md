@@ -10,7 +10,9 @@ You are displaying the organization's Clawkeeper security policies.
 ## Step 1: Check Connection Mode
 
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/api_key" 2>/dev/null
 ```
 
 ### If no API key (local mode):
@@ -60,20 +62,29 @@ Proceed to Step 2.
 
 ### Fetch shield policy
 ```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key")
 curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/policies" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 If the endpoint returns an error or is not found, try the shield policies endpoint:
 ```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key")
 curl -s --max-time 5 "https://clawkeeper.dev/api/v1/shield/policies" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 ### Fetch Claude Code specific policies
 ```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key")
 curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/config" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 ## Step 3: Display Policies

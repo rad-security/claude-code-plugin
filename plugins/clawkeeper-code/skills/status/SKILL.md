@@ -11,7 +11,9 @@ You are showing the current Clawkeeper shield status. Determine the mode and dis
 
 ### Check for API key
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/api_key" 2>/dev/null
 ```
 
 If a key is found and non-empty, the user is in **connected mode**. Otherwise, **local mode**.
@@ -40,14 +42,18 @@ Capture the value after `HOOK_SOURCE:` for use in the status output.
 
 Read local stats:
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/nudge_state.json" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/nudge_state.json" 2>/dev/null
 ```
 
 If the nudge state file exists, parse `total_blocks`, `nudges_shown`, and any session counters. If it does not exist, use defaults (0 blocks, no sessions recorded).
 
 Also read the config for detection mode:
 ```bash
-cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/config.json" 2>/dev/null
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+cat "$CK_DIR/config.json" 2>/dev/null
 ```
 
 Display:
@@ -83,8 +89,11 @@ Run /clawkeeper:connect to link your free account.
 
 Validate the key and fetch status from the API:
 ```bash
+CK_DIR="$HOME/.clawkeeper-plugin"
+[ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
+API_KEY=$(cat "$CK_DIR/api_key")
 curl -s --max-time 5 "https://clawkeeper.dev/api/v1/claude-code/health" \
-  -H "Authorization: Bearer $(cat "${CLAUDE_PLUGIN_DATA:-$HOME/.clawkeeper-plugin}/api_key")"
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 If the request succeeds, parse the JSON response and display:
