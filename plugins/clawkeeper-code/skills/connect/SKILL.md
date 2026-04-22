@@ -151,15 +151,19 @@ exit 1
 
 **CRITICAL: Never echo or log the raw API key in any output shown to the user. The script above stores it directly to file without displaying it.**
 
-## Step 5: Install HTTP Hooks
+## Step 5: Install HTTP Hooks (and persist a stable machine_id)
 
-After the key is stored, install HTTP hooks into `~/.claude/settings.json`. This is CRITICAL — without the hooks, Clawkeeper cannot monitor Claude Code activity. Run this single command:
+After the key is stored, install HTTP hooks into `~/.claude/settings.json` and ensure a stable `machine_id` exists alongside the API key. The machine_id is a client-generated UUID that lets the Clawkeeper server recognize the same laptop across hostname changes, OS renames, and hook payloads that report different `hostname` values (common on Windows / MINGW64). Without it, two checkins from the same machine with different hostnames produce two duplicate workstation rows.
+
+This is CRITICAL — without the hooks AND the machine_id, Clawkeeper cannot reliably track a workstation. Run this single command:
 
 ```bash
 python3 << 'PYEOF'
-import json, os, sys
+import json, os, sys, uuid
 
-api_key_path = os.path.expanduser("~/.clawkeeper-plugin/api_key")
+data_dir = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.expanduser("~/.clawkeeper-plugin")
+api_key_path = os.path.join(data_dir, "api_key")
+machine_id_path = os.path.join(data_dir, "machine_id")
 settings_path = os.path.expanduser("~/.claude/settings.json")
 
 try:
@@ -172,6 +176,25 @@ if not api_key:
     print("ERROR_EMPTY_KEY")
     sys.exit(1)
 
+# Generate + persist machine_id on first run. Keep it stable forever after.
+if os.path.isfile(machine_id_path):
+    with open(machine_id_path) as f:
+        machine_id = f.read().strip()
+else:
+    machine_id = str(uuid.uuid4())
+    os.makedirs(data_dir, exist_ok=True)
+    with open(machine_id_path, "w") as f:
+        f.write(machine_id)
+    try:
+        os.chmod(machine_id_path, 0o600)
+    except OSError:
+        pass
+if not machine_id:
+    # Corrupt file — regenerate
+    machine_id = str(uuid.uuid4())
+    with open(machine_id_path, "w") as f:
+        f.write(machine_id)
+
 os.makedirs(os.path.dirname(settings_path), exist_ok=True)
 try:
     with open(settings_path) as f:
@@ -181,11 +204,15 @@ except (FileNotFoundError, json.JSONDecodeError):
 
 hooks = settings.setdefault("hooks", {})
 
+# Every hook sends the machine_id as an HTTP header so the server can
+# resolve the host by stable ID instead of fuzzy hostname matching.
+hook_headers = {"Authorization": "Bearer " + api_key, "X-Machine-Id": machine_id}
+
 ck_hooks = {
-    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/evaluate", "headers": {"Authorization": "Bearer " + api_key}}]}],
-    "PreToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/evaluate", "headers": {"Authorization": "Bearer " + api_key}}]}],
-    "PostToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/audit", "headers": {"Authorization": "Bearer " + api_key}}]}],
-    "SessionStart": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/checkin", "headers": {"Authorization": "Bearer " + api_key}}]}],
+    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/evaluate", "headers": hook_headers}]}],
+    "PreToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/evaluate", "headers": hook_headers}]}],
+    "PostToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/audit", "headers": hook_headers}]}],
+    "SessionStart": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://clawkeeper.dev/api/v1/claude-code/checkin", "headers": hook_headers}]}],
 }
 
 for event_name, new_entries in ck_hooks.items():
@@ -215,21 +242,25 @@ PYEOF
 
 If the output contains `ERROR_NO_KEY` or `ERROR_EMPTY_KEY`, display an error and ask the user to reconnect.
 
+**CRITICAL: Never echo or log the contents of the `machine_id` file in output shown to the user. It is a stable per-machine identifier and should not be pasted into chat or logs.**
+
 ## Step 6: Register Workstation
 
-After hooks are installed, register the workstation:
+After hooks are installed, register the workstation. This call also sends `machine_id` in the body so the server can link this checkin to the same host that subsequent HTTP hook calls will report via the `X-Machine-Id` header.
 ```bash
 CK_DIR="$HOME/.clawkeeper-plugin"
 [ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
 API_KEY=$(cat "$CK_DIR/api_key" 2>/dev/null)
+MACHINE_ID=$(cat "$CK_DIR/machine_id" 2>/dev/null)
 HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || echo "unknown")
 OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
 CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
 CWD_VAL=$(pwd)
 curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \
   -H "Authorization: Bearer $API_KEY" \
+  -H "X-Machine-Id: $MACHINE_ID" \
   -H "Content-Type: application/json" \
-  -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\"}" 2>/dev/null
+  -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\",\"machine_id\":\"$MACHINE_ID\"}" 2>/dev/null
 echo ""
 echo "CHECKIN_DONE"
 ```
