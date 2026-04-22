@@ -244,23 +244,151 @@ If the output contains `ERROR_NO_KEY` or `ERROR_EMPTY_KEY`, display an error and
 
 **CRITICAL: Never echo or log the contents of the `machine_id` file in output shown to the user. It is a stable per-machine identifier and should not be pasted into chat or logs.**
 
-## Step 6: Register Workstation
+## Step 6: Register Workstation (with skill + MCP inventory)
 
 After hooks are installed, register the workstation. This call also sends `machine_id` in the body so the server can link this checkin to the same host that subsequent HTTP hook calls will report via the `X-Machine-Id` header.
+
+In addition to the basic workstation metadata, this call enumerates the skills and MCP servers installed locally and sends them in the payload. The server persists them in `host_skill_inventory` and `host_mcp_inventory` so admins can see — on the Agent Skills panel at `/security` — which skills each workstation has, with risk classification. Without this, the panel shows "0 skills discovered" even on machines that have the plugin installed.
+
 ```bash
 CK_DIR="$HOME/.clawkeeper-plugin"
 [ -n "$CLAUDE_PLUGIN_DATA" ] && CK_DIR="$CLAUDE_PLUGIN_DATA"
 API_KEY=$(cat "$CK_DIR/api_key" 2>/dev/null)
-MACHINE_ID=$(cat "$CK_DIR/machine_id" 2>/dev/null)
-HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || echo "unknown")
-OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
-CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
+export MACHINE_ID=$(cat "$CK_DIR/machine_id" 2>/dev/null)
+export HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || echo "unknown")
+export OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
+export CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
 CWD_VAL=$(pwd)
+
+# Build the full JSON payload in Python — enumerates installed skills (global + plugin-provided)
+# and MCP servers so the server-side inventory is populated on first /connect and on every
+# subsequent /connect (the skill set can change between connects).
+BODY=$(python3 - <<PYEOF
+import json, os, hashlib, glob
+
+home = os.path.expanduser("~")
+cwd = os.getcwd()
+
+def read_preview(path, max_bytes=2048):
+    try:
+        with open(path, "rb") as f:
+            data = f.read(max_bytes)
+        return data.decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+def sha256(path):
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+def collect_skills():
+    out = []
+    seen = set()
+
+    def add(path, source):
+        name = os.path.basename(os.path.dirname(path))
+        key = (name, source)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "name": name,
+            "source": source,
+            "preview": read_preview(path),
+            "hash": sha256(path),
+        })
+
+    # 1. Standalone skills at well-known locations.
+    for pat, src in [
+        (os.path.join(home, ".claude", "skills", "*", "SKILL.md"), "global"),
+        (os.path.join(cwd,  ".claude", "skills", "*", "SKILL.md"), "project"),
+    ]:
+        for f in glob.glob(pat):
+            add(f, src)
+
+    # 2. Plugin-provided skills, read from the Claude Code manifest when present
+    #    (authoritative — points at the specific installed version). Fall back to
+    #    globbing the cache if the manifest is missing or unreadable.
+    manifest_path = os.path.join(home, ".claude", "plugins", "installed_plugins.json")
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        for _slug, installs in (manifest.get("plugins") or {}).items():
+            for inst in installs or []:
+                install_path = inst.get("installPath")
+                scope = "project" if inst.get("scope") == "project" else "global"
+                if not install_path:
+                    continue
+                for f in glob.glob(os.path.join(install_path, "skills", "*", "SKILL.md")):
+                    add(f, scope)
+    except (OSError, json.JSONDecodeError):
+        # Fallback: glob the cache directly
+        for f in glob.glob(os.path.join(home, ".claude", "plugins", "cache", "*", "*", "*", "skills", "*", "SKILL.md")):
+            add(f, "global")
+
+    # 3. Project-level plugin installs (rare, but supported)
+    for f in glob.glob(os.path.join(cwd, ".claude", "plugins", "*", "*", "skills", "*", "SKILL.md")):
+        add(f, "project")
+
+    return out
+
+def collect_mcp():
+    out = []
+    # MCP servers live in settings.json under "mcpServers" (user-level and project-level).
+    for scope, path in [
+        ("global",  os.path.join(home, ".claude", "settings.json")),
+        ("project", os.path.join(cwd, ".claude", "settings.json")),
+        ("project", os.path.join(cwd, ".claude", "settings.local.json")),
+    ]:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path) as f:
+                settings = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        servers = settings.get("mcpServers") or {}
+        if not isinstance(servers, dict):
+            continue
+        for name, cfg in servers.items():
+            if not isinstance(cfg, dict):
+                continue
+            stype = cfg.get("type") or ("http" if cfg.get("url") else "stdio")
+            cmd = cfg.get("command")
+            if isinstance(cfg.get("args"), list) and cmd:
+                cmd = " ".join([cmd] + [str(a) for a in cfg["args"]])
+            out.append({
+                "name": name,
+                "type": stype,
+                "command": cmd,
+                "source": scope,
+            })
+    return out
+
+payload = {
+    "hostname": os.environ.get("HOSTNAME_VAL") or "unknown",
+    "os": os.environ.get("OS_VAL") or "unknown",
+    "claude_version": os.environ.get("CC_VERSION") or "unknown",
+    "cwd": cwd,
+    "machine_id": os.environ.get("MACHINE_ID") or "",
+    "installed_skills": collect_skills(),
+    "installed_mcp_servers": collect_mcp(),
+}
+print(json.dumps(payload))
+PYEOF
+)
+
 curl -s --max-time 10 -X POST "https://clawkeeper.dev/api/v1/claude-code/checkin" \
   -H "Authorization: Bearer $API_KEY" \
   -H "X-Machine-Id: $MACHINE_ID" \
   -H "Content-Type: application/json" \
-  -d "{\"hostname\":\"$HOSTNAME_VAL\",\"os\":\"$OS_VAL\",\"claude_version\":\"$CC_VERSION\",\"cwd\":\"$CWD_VAL\",\"machine_id\":\"$MACHINE_ID\"}" 2>/dev/null
+  -d "$BODY" 2>/dev/null
 echo ""
 echo "CHECKIN_DONE"
 ```
