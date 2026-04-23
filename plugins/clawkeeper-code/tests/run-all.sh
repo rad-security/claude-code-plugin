@@ -50,6 +50,7 @@ run_suite() {
 
 run_suite "Local Detection Engine" "${SCRIPT_DIR}/test-local-detect.sh"
 run_suite "Hook Dispatchers" "${SCRIPT_DIR}/test-hooks.sh"
+run_suite "Copilot Adapter" "${SCRIPT_DIR}/test-copilot-adapter.sh"
 
 # ── Final Summary ──────────────────────────────────────────────────────────
 

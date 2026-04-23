@@ -20,6 +20,12 @@ get_data_dir() {
 #   4. Empty string if nothing found
 # Usage: key=$(resolve_api_key)
 resolve_api_key() {
+  # 0. Global environment variable (MDM/enterprise deployment)
+  if [ -n "${CLAWKEEPER_API_KEY:-}" ]; then
+    printf '%s' "$CLAWKEEPER_API_KEY"
+    return 0
+  fi
+
   # 1. Environment variable (highest priority)
   if [ -n "${CLAUDE_PLUGIN_OPTION_API_KEY:-}" ]; then
     printf '%s' "$CLAUDE_PLUGIN_OPTION_API_KEY"
@@ -38,6 +44,19 @@ resolve_api_key() {
     stored_key="${stored_key%"${stored_key##*[![:space:]]}"}"
     if [ -n "$stored_key" ]; then
       printf '%s' "$stored_key"
+      return 0
+    fi
+  fi
+
+  # 2b. Multi-IDE shared key file
+  local shared_key_file="$HOME/.clawkeeper/config/api_key"
+  if [ -f "$shared_key_file" ]; then
+    local shared_key
+    shared_key=$(cat "$shared_key_file" 2>/dev/null)
+    shared_key="${shared_key#"${shared_key%%[![:space:]]*}"}"
+    shared_key="${shared_key%"${shared_key##*[![:space:]]}"}"
+    if [ -n "$shared_key" ]; then
+      printf '%s' "$shared_key"
       return 0
     fi
   fi

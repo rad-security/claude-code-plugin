@@ -5,12 +5,17 @@
 
 set -euo pipefail
 
-PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PLUGIN_ROOT="${CLAWKEEPER_SCRIPTS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Source shared libraries
-source "${PLUGIN_ROOT}/scripts/lib/json-helpers.sh"
-source "${PLUGIN_ROOT}/scripts/lib/key-resolver.sh"
-source "${PLUGIN_ROOT}/scripts/lib/conflict-check.sh"
+source "${PLUGIN_ROOT}/scripts/lib/json-helpers.sh" 2>/dev/null || \
+  source "${PLUGIN_ROOT}/lib/json-helpers.sh" 2>/dev/null || true
+source "${PLUGIN_ROOT}/scripts/lib/key-resolver.sh" 2>/dev/null || \
+  source "${PLUGIN_ROOT}/lib/key-resolver.sh" 2>/dev/null || true
+source "${PLUGIN_ROOT}/scripts/lib/conflict-check.sh" 2>/dev/null || \
+  source "${PLUGIN_ROOT}/lib/conflict-check.sh" 2>/dev/null || true
+source "${PLUGIN_ROOT}/scripts/lib/machine-id.sh" 2>/dev/null || \
+  source "${PLUGIN_ROOT}/lib/machine-id.sh" 2>/dev/null || true
 
 # Fail-open trap
 trap 'emit_allow; exit 0' ERR
@@ -25,7 +30,7 @@ if [ -z "$INPUT" ]; then
 fi
 
 # If HTTP-based Clawkeeper hooks are already active, defer
-if has_clawkeeper_http_hooks; then
+if [ "${CLAWKEEPER_SKIP_CONFLICT_CHECK:-}" != "1" ] && has_clawkeeper_http_hooks; then
   emit_allow
   exit 0
 fi
@@ -35,12 +40,14 @@ API_KEY=$(resolve_api_key) || true
 
 if [ -n "$API_KEY" ]; then
   # ---- API mode: forward to audit endpoint ----
-  HOSTNAME_VAL=$(hostname 2>/dev/null || printf 'unknown')
+  HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
+  MACHINE_ID=$(get_machine_id)
   curl -s --max-time 4 \
     -X POST "https://clawkeeper.dev/api/v1/claude-code/audit" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "X-Hostname: ${HOSTNAME_VAL}" \
+    -H "X-Machine-Id: ${MACHINE_ID}" \
     -d "$INPUT" >/dev/null 2>&1 || true
 
   # Always allow — audit is fire-and-forget

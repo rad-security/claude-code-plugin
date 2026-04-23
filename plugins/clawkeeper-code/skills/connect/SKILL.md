@@ -440,6 +440,81 @@ Having trouble? You can also paste an API key manually from:
   https://clawkeeper.dev/settings#api-keys
 ```
 
+## Step 7: Configure OTLP Telemetry (when --enable-telemetry flag is passed OR org has otlp_enabled)
+
+1. Detect the user's shell from $SHELL:
+   - /bin/zsh or /usr/bin/zsh → ~/.zshrc
+   - /bin/bash or /usr/bin/bash → ~/.bashrc
+   - /usr/bin/fish → ~/.config/fish/config.fish
+
+2. Generate the OTEL export block using the API key from step 3:
+
+   For bash/zsh:
+   ```bash
+   # >>> clawkeeper-telemetry >>>
+   export CLAUDE_CODE_ENABLE_TELEMETRY=1
+   export OTEL_LOGS_EXPORTER=otlp
+   export OTEL_METRICS_EXPORTER=otlp
+   export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+   export OTEL_EXPORTER_OTLP_ENDPOINT=https://clawkeeper.dev/api/v1/otlp
+   export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer {API_KEY}"
+   export OTEL_LOG_TOOL_DETAILS=1
+   export OTEL_RESOURCE_ATTRIBUTES="host.name=$(scutil --get LocalHostName 2>/dev/null || hostname -s | tr ' ' '_')"
+   # <<< clawkeeper-telemetry <<<
+   ```
+
+   For fish shell, use `set -gx` instead of `export`:
+   ```fish
+   # >>> clawkeeper-telemetry >>>
+   set -gx CLAUDE_CODE_ENABLE_TELEMETRY 1
+   set -gx OTEL_LOGS_EXPORTER otlp
+   set -gx OTEL_METRICS_EXPORTER otlp
+   set -gx OTEL_EXPORTER_OTLP_PROTOCOL http/protobuf
+   set -gx OTEL_EXPORTER_OTLP_ENDPOINT https://clawkeeper.dev/api/v1/otlp
+   set -gx OTEL_EXPORTER_OTLP_HEADERS "Authorization=Bearer {API_KEY}"
+   set -gx OTEL_LOG_TOOL_DETAILS 1
+   set -gx OTEL_RESOURCE_ATTRIBUTES "host.name=$(scutil --get LocalHostName 2>/dev/null || hostname -s | tr ' ' '_')"
+   # <<< clawkeeper-telemetry <<<
+   ```
+
+3. Check if the guard block `# >>> clawkeeper-telemetry >>>` already exists in the rc file:
+   - If yes: replace the entire block between guards (inclusive) with the new content
+   - If no: append the block to the end of the rc file
+
+   Use this bash command to write idempotently:
+   ```bash
+   RC_FILE="[detected rc file path]"
+   API_KEY="[api key from step 3]"
+
+   BLOCK="# >>> clawkeeper-telemetry >>>\nexport CLAUDE_CODE_ENABLE_TELEMETRY=1\nexport OTEL_LOGS_EXPORTER=otlp\nexport OTEL_METRICS_EXPORTER=otlp\nexport OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf\nexport OTEL_EXPORTER_OTLP_ENDPOINT=https://clawkeeper.dev/api/v1/otlp\nexport OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer $API_KEY\"\nexport OTEL_LOG_TOOL_DETAILS=1\nexport OTEL_RESOURCE_ATTRIBUTES=\"host.name=\$(scutil --get LocalHostName 2>/dev/null || hostname -s | tr ' ' '_')\"\n# <<< clawkeeper-telemetry <<<"
+
+   if grep -q '# >>> clawkeeper-telemetry >>>' "$RC_FILE" 2>/dev/null; then
+     # Replace existing block
+     python3 -c "
+   import re, sys
+   content = open('$RC_FILE').read()
+   block = '''$BLOCK'''
+   new_content = re.sub(
+     r'# >>> clawkeeper-telemetry >>>.*?# <<< clawkeeper-telemetry <<<',
+     block,
+     content,
+     flags=re.DOTALL
+   )
+   open('$RC_FILE', 'w').write(new_content)
+   print('TELEMETRY_UPDATED')
+   "
+   else
+     printf '\n%b\n' "$BLOCK" >> "$RC_FILE"
+     echo "TELEMETRY_WRITTEN"
+   fi
+   ```
+
+4. Tell the user:
+   ```
+   Telemetry configured in {rc_file}. Restart your terminal or run:
+     source {rc_file}
+   ```
+
 ## Important Notes
 - NEVER print, echo, or display the raw API key value in any output
 - NEVER store the key if validation fails

@@ -151,20 +151,23 @@ def sha256(path):
 out = []
 seen = set()
 
-def add(path, source):
+def add(path, source, plugin=None):
     name = os.path.basename(os.path.dirname(path))
     key = (name, source)
     if key in seen:
         return
     seen.add(key)
-    out.append({
+    entry = {
         "name": name,
         "source": source,
         "preview": read_preview(path),
         "hash": sha256(path),
-    })
+    }
+    if plugin:
+        entry["plugin"] = plugin
+    out.append(entry)
 
-# 1 + 2. Well-known standalone locations
+# 1 + 2. Well-known standalone locations (not tied to a plugin)
 patterns = [(os.path.join(home, ".claude", "skills", "*", "SKILL.md"), "global")]
 if cwd:
     patterns.append((os.path.join(cwd, ".claude", "skills", "*", "SKILL.md"), "project"))
@@ -184,16 +187,21 @@ try:
             if not install_path:
                 continue
             for f in glob.glob(os.path.join(install_path, "skills", "*", "SKILL.md")):
-                add(f, scope)
+                add(f, scope, plugin=_slug)
 except (OSError, json.JSONDecodeError):
-    # Fallback: glob the cache directly
+    # Fallback: glob the cache directly. Plugin slug is the second-to-last
+    # directory component of cache/<owner>/<repo>/<slug>/skills/<skill>/SKILL.md
     for f in glob.glob(os.path.join(home, ".claude", "plugins", "cache", "*", "*", "*", "skills", "*", "SKILL.md")):
-        add(f, "global")
+        parts = f.split(os.sep)
+        slug = parts[-4] if len(parts) >= 4 else None
+        add(f, "global", plugin=slug)
 
 # 4. Project-level plugin installs
 if cwd:
     for f in glob.glob(os.path.join(cwd, ".claude", "plugins", "*", "*", "skills", "*", "SKILL.md")):
-        add(f, "project")
+        parts = f.split(os.sep)
+        slug = parts[-4] if len(parts) >= 4 else None
+        add(f, "project", plugin=slug)
 
 print(",".join(json.dumps(s) for s in out))
 PYEOF

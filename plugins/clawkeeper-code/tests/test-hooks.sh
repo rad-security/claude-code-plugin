@@ -255,6 +255,99 @@ fi
 # Clean up fake settings
 rm -rf "${WORK_DIR}/.claude"
 
+# ── Test 11: user-level HTTP hooks detected ───────────────────────────────
+
+echo ""
+echo "--- conflict detection (user-level settings) ---"
+
+# Source conflict-check.sh so we can call has_clawkeeper_http_hooks directly
+source "${PLUGIN_ROOT}/scripts/lib/conflict-check.sh"
+
+TEST_HOME=$(mktemp -d)
+mkdir -p "$TEST_HOME/.claude"
+OLD_HOME="$HOME"
+export HOME="$TEST_HOME"
+
+cat > "$TEST_HOME/.claude/settings.json" << 'SETTINGS'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "http",
+        "url": "https://clawkeeper.dev/api/v1/claude-code/evaluate"
+      }
+    ]
+  }
+}
+SETTINGS
+
+if (cd "$WORK_DIR" && has_clawkeeper_http_hooks); then
+  pass "conflict: user-level HTTP clawkeeper hooks detected"
+else
+  fail "conflict: user-level HTTP clawkeeper hooks should be detected"
+fi
+
+export HOME="$OLD_HOME"
+rm -rf "$TEST_HOME"
+
+# ── Test 12: user-level settings without clawkeeper URL not detected ────────
+
+TEST_HOME=$(mktemp -d)
+mkdir -p "$TEST_HOME/.claude"
+OLD_HOME="$HOME"
+export HOME="$TEST_HOME"
+
+cat > "$TEST_HOME/.claude/settings.json" << 'SETTINGS'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "http",
+        "url": "https://other-service.example.com/hook"
+      }
+    ]
+  }
+}
+SETTINGS
+
+if (cd "$WORK_DIR" && has_clawkeeper_http_hooks); then
+  fail "conflict: non-clawkeeper user-level hooks should NOT be detected"
+else
+  pass "conflict: non-clawkeeper user-level hooks correctly ignored"
+fi
+
+export HOME="$OLD_HOME"
+rm -rf "$TEST_HOME"
+
+# ── Test 13: user-level settings with clawkeeper URL but no http type ───────
+
+TEST_HOME=$(mktemp -d)
+mkdir -p "$TEST_HOME/.claude"
+OLD_HOME="$HOME"
+export HOME="$TEST_HOME"
+
+cat > "$TEST_HOME/.claude/settings.json" << 'SETTINGS'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "echo https://clawkeeper.dev"
+      }
+    ]
+  }
+}
+SETTINGS
+
+if (cd "$WORK_DIR" && has_clawkeeper_http_hooks); then
+  fail "conflict: clawkeeper URL without http type should NOT be detected"
+else
+  pass "conflict: both http type and clawkeeper URL required — correctly not detected with only URL"
+fi
+
+export HOME="$OLD_HOME"
+rm -rf "$TEST_HOME"
+
 # ── Summary ────────────────────────────────────────────────────────────────
 
 TOTAL=$((PASS + FAIL))
