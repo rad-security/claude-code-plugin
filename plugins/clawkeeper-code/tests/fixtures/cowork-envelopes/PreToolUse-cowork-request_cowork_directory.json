@@ -1,0 +1,11 @@
+{
+  "session_id": "651d410a-dcd1-41f4-9e27-3e208ec7655b",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__cowork__request_cowork_directory",
+  "tool_input": {
+    "path": "~/Desktop"
+  },
+  "tool_use_id": "toolu_FIXTURE_request_dir",
+  "_clawkeeper_fixture_note": "Captured 2026-04-28 from Cowork chat. Second call: model asks Cowork to grant access to the named directory. Path is the field to match for directory-level rules."
+}

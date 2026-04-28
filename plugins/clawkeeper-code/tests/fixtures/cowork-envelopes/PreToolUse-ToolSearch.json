@@ -1,0 +1,12 @@
+{
+  "session_id": "651d410a-dcd1-41f4-9e27-3e208ec7655b",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "ToolSearch",
+  "tool_input": {
+    "query": "select:mcp__cowork__request_cowork_directory",
+    "max_results": 1
+  },
+  "tool_use_id": "toolu_016s1U4NEWcx3GENmo2JnfyQ",
+  "_clawkeeper_fixture_note": "Captured 2026-04-28 from Cowork chat (.env read flow). First call in the chain — model looks up the directory-access tool name via ToolSearch."
+}
