@@ -1,21 +1,19 @@
 ---
 name: cowork-install
-description: Install the Clawkeeper Cowork PreToolUse guardrail. Drops a hook into every Cowork workspace on this machine that evaluates each tool call against a local policy before Claude Desktop runs it. Use when the user wants to apply Clawkeeper to Cowork (Claude Desktop), block file/tool access to PHI, secrets, or other restricted paths, or asks how to make Cowork safer.
+description: Install the Clawkeeper PreToolUse hook into Cowork (Claude Desktop). Same hook script and same dashboard policy as Claude Code — rules authored at clawkeeper.dev/policies apply to both surfaces. Use when the user wants to extend Clawkeeper coverage to Cowork, block Cowork tool calls per their org policy, or asks how to make Cowork safer.
 ---
 
-# Install Clawkeeper Cowork Guardrail
+# Install Clawkeeper Cowork Hook
 
-You are installing the Clawkeeper PreToolUse hook for Cowork. Run the bundled installer, then summarize what happened and tell the user the exact next step.
+You are installing the Clawkeeper hook for Cowork. Same script, same key, same dashboard policy as Claude Code.
 
 ## Step 1: Run the installer
-
-Use Bash:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/cowork-install.sh"
 ```
 
-If `CLAUDE_PLUGIN_ROOT` is not set in the environment, fall back to:
+If `CLAUDE_PLUGIN_ROOT` is not set:
 
 ```bash
 SCRIPT="$(find "$HOME/.claude" -maxdepth 8 -path '*/clawkeeper*/scripts/cowork-install.sh' -type f 2>/dev/null | head -1)"
@@ -23,32 +21,31 @@ SCRIPT="$(find "$HOME/.claude" -maxdepth 8 -path '*/clawkeeper*/scripts/cowork-i
 "$SCRIPT"
 ```
 
-If the installer exits non-zero, show the user the error verbatim and stop. Do not retry.
+If the installer exits non-zero, show the error verbatim and stop.
 
-## Step 2: Confirm and tell the user what to do next
+## Step 2: Confirm next steps
 
-After a successful install, display:
+After a successful install:
 
 ```
-Clawkeeper Cowork guardrail installed.
+Clawkeeper Cowork hook installed.
 
-Next step (required for the hook to take effect):
-  1. Quit Claude Desktop completely (⌘Q).
+Required next step:
+  1. Quit Claude Desktop fully (⌘Q).
   2. Relaunch Claude Desktop.
-  3. Open a Cowork chat. Try a path covered by the default policy:
-     "what files are in my ~/Documents/PHI folder?"
-     The model should refuse with a Clawkeeper-attributed message.
+  3. Open a new Cowork chat. Tool calls now go through your dashboard policy.
 
-Useful commands:
-  /clawkeeper-code:cowork-status      → install state + recent events
-  /clawkeeper-code:cowork-uninstall   → remove the hook
+If you haven't connected an account yet, run /clawkeeper-code:connect — without
+an API key the hook fails open and dashboard rules won't apply.
 
-Policy file: ~/.clawkeeper/cowork/policy.json
-Audit log:   ~/.clawkeeper/cowork/events.log
+Manage rules: https://clawkeeper.dev/policies
+Status:       /clawkeeper-code:cowork-status
+Uninstall:    /clawkeeper-code:cowork-uninstall
 ```
 
 ## Notes
 
-- The installer is idempotent. Running it again preserves a customized `policy.json`. The default policy is always refreshed at `~/.clawkeeper/cowork/policy.default.json` for diffing.
-- The default policy blocks PHI / HIPAA / PII / secrets paths, `.env` files, `.ssh` / `.gnupg` directories, and cloud credential files. Everything else is allowed.
-- The hook fails OPEN by default (a misconfigured guardrail must not brick Cowork). Customers who need fail-closed behavior set `enforcement_mode: "strict"` in policy.json — note this is honored at v0.1 as a logged signal but not yet enforced; flag this to the user if asked.
+- Idempotent — re-running is safe.
+- Same `~/.clawkeeper-plugin/api_key` Claude Code uses; no separate auth.
+- Org rules live in the dashboard at `/policies`. Cowork and Claude Code share them — there is no Cowork-specific policy file.
+- Hook fails open by design: API down, no key, hook script error → allow + log. A misconfigured guardrail must not brick Cowork.

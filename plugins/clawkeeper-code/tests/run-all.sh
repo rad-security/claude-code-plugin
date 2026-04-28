@@ -52,8 +52,6 @@ run_suite "Local Detection Engine" "${SCRIPT_DIR}/test-local-detect.sh"
 run_suite "Hook Dispatchers" "${SCRIPT_DIR}/test-hooks.sh"
 run_suite "Copilot Adapter" "${SCRIPT_DIR}/test-copilot-adapter.sh"
 
-run_suite "Cowork Hook" "${SCRIPT_DIR}/test-cowork-hook.sh"
-
 # ── Final Summary ──────────────────────────────────────────────────────────
 
 echo "========================================"

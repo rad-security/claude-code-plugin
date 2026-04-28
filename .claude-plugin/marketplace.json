@@ -10,8 +10,8 @@
     {
       "name": "clawkeeper-code",
       "source": "./plugins/clawkeeper-code",
-      "description": "Security scanning, threat detection, and Cowork guardrails for Claude Code and Claude Desktop. Adds /clawkeeper-code:cowork-install \u2014 a PreToolUse hook that blocks Cowork tool calls touching PHI, secrets, or other restricted paths per local policy. Plus Claude Code threat detection: 24+ patterns, audit, secret scanning, plugin inspection. Works immediately \u2014 no account required.",
-      "version": "1.1.0",
+      "description": "Security scanning, threat detection, and Cowork hook for Claude Code and Claude Desktop. Adds /clawkeeper-code:cowork-install \u2014 a PreToolUse hook for Cowork that uses the same dashboard policy and evaluate endpoint as Claude Code. Rules authored once apply to both surfaces.",
+      "version": "1.1.1",
       "author": {
         "name": "RAD Security"
       },

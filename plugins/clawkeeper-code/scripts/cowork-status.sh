@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# cowork-status.sh — Show install state and recent events for the
-# Clawkeeper Cowork guardrail.
+# cowork-status.sh — Show install state of the Clawkeeper Cowork hook.
 
 set -u
 
@@ -10,50 +9,27 @@ case "$(uname -s)" in
   *)      CLAUDE_DATA="" ;;
 esac
 
-DATA_DIR="${HOME}/.clawkeeper/cowork"
-POLICY_FILE="${DATA_DIR}/policy.json"
-EVENTS_LOG="${DATA_DIR}/events.log"
-HOOK_CMD="${HOME}/.clawkeeper/scripts/cowork-pre-tool.sh"
+HOOK_CMD="${HOME}/.clawkeeper/scripts/pre-tool-hook.sh"
+KEY_FILE="${HOME}/.clawkeeper-plugin/api_key"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m  %s\n' "$*"; }
 miss() { printf '  \033[31m✗\033[0m  %s\n' "$*"; }
 note() { printf '     %s\n' "$*"; }
 
-bold "Clawkeeper Cowork Guardrail — status"
+bold "Clawkeeper Cowork Hook — status"
 echo
 
-# Hook script
 if [ -x "$HOOK_CMD" ]; then ok "hook script: ${HOOK_CMD}"
-else miss "hook script missing: ${HOOK_CMD}"; fi
+else miss "hook script missing: ${HOOK_CMD} (run /clawkeeper-code:cowork-install)"; fi
 
-# Policy
-if [ -f "$POLICY_FILE" ]; then
-  ok "policy: ${POLICY_FILE}"
-  if command -v python3 >/dev/null 2>&1; then
-    python3 - "$POLICY_FILE" <<'PY' || true
-import json, sys
-try:
-    with open(sys.argv[1]) as f:
-        p = json.load(f)
-    print(f"     version: {p.get('version', '?')}, "
-          f"rules: {len(p.get('rules', []))}, "
-          f"default: {p.get('default_action', 'allow')}, "
-          f"mode: {p.get('enforcement_mode', 'permissive')}")
-except Exception as e:
-    print(f"     (unable to parse: {e})")
-PY
-  fi
+if [ -s "$KEY_FILE" ]; then
+  ok "API key: present"
+  note "rules are fetched from https://clawkeeper.dev/policies"
 else
-  miss "policy file missing: ${POLICY_FILE}"
-fi
-
-# Events
-if [ -f "$EVENTS_LOG" ]; then
-  COUNT=$(wc -l < "$EVENTS_LOG" 2>/dev/null | tr -d ' ' || echo "0")
-  ok "events log (${COUNT} entries): ${EVENTS_LOG}"
-else
-  note "events log not yet created (no hook calls observed)"
+  miss "API key missing: ${KEY_FILE}"
+  note "run /clawkeeper-code:connect to link your account, otherwise the hook"
+  note "will fail open and dashboard rules will not apply"
 fi
 
 echo
@@ -71,14 +47,12 @@ else
     workspace_id="${workspace_dir##*/}"
 
     HOOKS_FILE_MP="${cw}/marketplaces/clawkeeper/cowork-guardrail/hooks/hooks.json"
-
     if [ -f "$HOOKS_FILE_MP" ]; then
       ok "workspace ${workspace_id:0:8}: marketplace hook installed"
     else
       miss "workspace ${workspace_id:0:8}: marketplace hook missing"
     fi
 
-    # find handles paths with spaces; -quit on first match to short-circuit.
     cache_match=$(find "${cw}/cache/clawkeeper/cowork-guardrail" \
       -maxdepth 3 -type f -name hooks.json -print -quit 2>/dev/null)
     if [ -n "$cache_match" ]; then
@@ -91,31 +65,12 @@ else
 fi
 
 echo
-bold "Recent events (last 5)"
+bold "Recent activity"
 echo
-if [ -f "$EVENTS_LOG" ] && [ -s "$EVENTS_LOG" ]; then
-  if command -v python3 >/dev/null 2>&1; then
-    tail -n 5 "$EVENTS_LOG" | python3 -c '
-import json, sys
-for line in sys.stdin:
-    try:
-        e = json.loads(line)
-        ts = e.get("ts", "?")
-        v = e.get("verdict", "?")
-        tn = e.get("tool_name", "")
-        rule = e.get("matched_rule_name") or e.get("matched_rule_id") or e.get("reason", "")
-        path = e.get("path", "")
-        line = f"  {ts}  {v:7s}  {tn:20s}  {rule}"
-        if path:
-            line += f"  {path}"
-        print(line)
-    except Exception:
-        print("  " + line.rstrip())
-'
-  else
-    tail -n 5 "$EVENTS_LOG"
-  fi
+if [ -s "$KEY_FILE" ]; then
+  note "events stream to your dashboard at https://clawkeeper.dev/dashboard"
+  note "(this command does not pull recent events; check the dashboard)"
 else
-  note "(no events yet)"
+  note "(no API key — events are not being recorded)"
 fi
 echo
