@@ -37,6 +37,8 @@ Teams use Clawkeeper Pro for fleet-wide visibility, custom policies, and complia
 
 ## Slash Commands
 
+### Claude Code
+
 | Command | Description |
 |---|---|
 | `/clawkeeper:setup` | Check status, configure warn/block mode |
@@ -48,6 +50,16 @@ Teams use Clawkeeper Pro for fleet-wide visibility, custom policies, and complia
 | `/clawkeeper:scan` | Run host security scanner |
 | `/clawkeeper:status` | Shield status and stats |
 | `/clawkeeper:policies` | View org security policies |
+
+### Cowork (Claude Desktop) — new in v1.1
+
+| Command | Description |
+|---|---|
+| `/clawkeeper-code:cowork-install` | Install the PreToolUse guardrail into every Cowork workspace on this machine. Blocks tool calls that touch PHI / secrets / `.env` / `.ssh` / cloud creds per local policy. |
+| `/clawkeeper-code:cowork-uninstall` | Remove the guardrail. Add `--purge` to also delete policy + audit log. |
+| `/clawkeeper-code:cowork-status` | Show install state, policy summary, recent block/allow events. |
+
+Default policy and audit log live at `~/.clawkeeper/cowork/`. Edit `policy.json` to add rules — no reinstall needed; the hook re-reads on every call. Full guide: [`docs/cowork-guardrail-install.md`](../docs/cowork-guardrail-install.md).
 
 ## How It Works
 

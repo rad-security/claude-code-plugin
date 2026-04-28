@@ -1,7 +1,7 @@
 {
   "name": "clawkeeper-code",
-  "version": "1.0.2",
-  "description": "Security scanning, compliance auditing, and threat detection for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ threat patterns. Audits your Claude Code setup for misconfigurations. Works immediately — no account required.",
+  "version": "1.1.0",
+  "description": "Security scanning, compliance auditing, threat detection, and Cowork guardrails for Claude Code and Claude Desktop. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ threat patterns. Adds a PreToolUse hook for Cowork that blocks tool calls touching PHI, secrets, or other restricted paths per local policy. Works immediately — no account required.",
   "author": {
     "name": "RAD Security",
     "email": "support@rad.security"

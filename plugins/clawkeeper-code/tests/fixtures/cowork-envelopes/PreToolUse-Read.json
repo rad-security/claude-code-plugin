@@ -1,0 +1,11 @@
+{
+  "session_id": "651d410a-dcd1-41f4-9e27-3e208ec7655b",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "/Users/jimmy/Desktop/.env"
+  },
+  "tool_use_id": "toolu_FIXTURE_read_env",
+  "_clawkeeper_fixture_note": "Captured 2026-04-28 from Cowork chat. Third call: actual file read. tool_input uses 'file_path' (not 'path'). This is the call that gets blocked by the dotenv rule."
+}
