@@ -78,15 +78,46 @@ log "Hook scripts deployed to ${SCRIPTS_DIR} (${DEPLOYED} top-level scripts)"
 SESSIONS_DIR="${CLAUDE_DATA}/local-agent-mode-sessions"
 WORKSPACE_COUNT=0
 
-# Cowork layout has shifted across versions. Older builds nest as
-# <sessions>/<owner>/<workspace>/cowork_plugins/; newer builds flatten to
-# <sessions>/<account>/cowork_plugins/. Discover via find so we work on both.
+# Cowork layout has shifted across versions:
+#   - Older nested:  <sessions>/<owner>/<workspace>/cowork_plugins/
+#   - Newer flat:    <sessions>/<account>/cowork_plugins/
+# Discover via find so we work on both.
 COWORK_DIRS=$(find "${SESSIONS_DIR}" -maxdepth 4 -type d -name cowork_plugins 2>/dev/null)
 
 if [ -z "${COWORK_DIRS}" ]; then
-  err "No cowork_plugins directories found under ${SESSIONS_DIR}."
-  err "Open Claude Desktop, send any message in a Cowork chat, then re-run this installer."
-  exit 1
+  # Cowork hasn't created the dir yet on this machine (fresh profile, never
+  # installed an Anthropic Cowork plugin). The dir name and JSON files are
+  # still what Cowork's binary expects -- it'll pick up whatever is there on
+  # next launch. So we create it ourselves at the most likely path: inside
+  # any UUID-named dir directly under <sessions> (excluding skills-plugin,
+  # which is a sibling system).
+  log "No cowork_plugins directory found; creating one (Cowork will scan it on next launch)."
+  CANDIDATES=$(find "${SESSIONS_DIR}" -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
+    | grep -Ev '/(skills-plugin)$' \
+    | head -5)
+  if [ -z "${CANDIDATES}" ]; then
+    err "No account dirs under ${SESSIONS_DIR} either."
+    err "Open Claude Desktop and send any message in Cowork mode, then re-run this installer."
+    exit 1
+  fi
+  while IFS= read -r account_dir; do
+    [ -d "$account_dir" ] || continue
+    # If this account dir has a UUID workspace dir inside, prefer that as the
+    # cowork_plugins parent (matches the older-nested layout). Otherwise place
+    # cowork_plugins directly inside the account dir (flat layout).
+    inner_uuid=$(find "$account_dir" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)
+    if [ -n "$inner_uuid" ] && [ "$(basename "$inner_uuid")" != ".claude-plugin" ]; then
+      target="${inner_uuid}/cowork_plugins"
+    else
+      target="${account_dir}/cowork_plugins"
+    fi
+    mkdir -p "$target"
+    log "Created ${target}"
+    COWORK_DIRS="${COWORK_DIRS}${COWORK_DIRS:+
+}${target}"
+  done <<EOF_CAND
+${CANDIDATES}
+EOF_CAND
 fi
 
 while IFS= read -r cw; do
