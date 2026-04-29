@@ -20,11 +20,17 @@
 
 set -euo pipefail
 
-VERSION="0.2.0"
+VERSION="0.2.1"
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$HOME/.clawkeeper"
 SCRIPTS_DIR="${INSTALL_DIR}/scripts"
-HOOK_CMD="${SCRIPTS_DIR}/pre-tool-hook.sh"
+HOOK_SCRIPT="${SCRIPTS_DIR}/pre-tool-hook.sh"
+# Wrap the hook with CLAWKEEPER_SKIP_CONFLICT_CHECK=1 so the Cowork install
+# evaluates instead of deferring when the user ALSO has Claude Code HTTP
+# hooks active in ~/.claude/settings.json. Without this wrapper, the conflict
+# check in pre-tool-hook.sh sees those HTTP hooks (which are scoped to Claude
+# Code, not Cowork) and short-circuits to allow, defeating the whole guardrail.
+HOOK_CMD="/bin/sh -c 'CLAWKEEPER_SKIP_CONFLICT_CHECK=1 exec ${HOOK_SCRIPT}'"
 
 err() { printf 'Error: %s\n' "$*" >&2; }
 log() { printf '  %s\n' "$*"; }
@@ -76,8 +82,8 @@ for libfile in "${SOURCE_DIR}"/lib/*.sh; do
   cp "$libfile" "${SCRIPTS_DIR}/lib/"
 done
 
-if [ ! -x "${HOOK_CMD}" ]; then
-  err "pre-tool-hook.sh did not deploy to ${HOOK_CMD}. Bailing."
+if [ ! -x "${HOOK_SCRIPT}" ]; then
+  err "pre-tool-hook.sh did not deploy to ${HOOK_SCRIPT}. Bailing."
   exit 1
 fi
 log "Hook scripts deployed → ${SCRIPTS_DIR} (${DEPLOYED} top-level scripts)"
@@ -238,7 +244,7 @@ echo
 echo "Clawkeeper Cowork hook installed."
 echo
 echo "  Workspaces:  ${WORKSPACE_COUNT}"
-echo "  Hook:        ${HOOK_CMD}"
+echo "  Hook:        ${HOOK_SCRIPT}"
 echo "  API key:     ${KEY_STATE}"
 echo "  Policy:      authored at https://clawkeeper.dev/policies (same rules apply to Claude Code and Cowork)"
 echo
