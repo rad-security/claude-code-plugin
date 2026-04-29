@@ -78,7 +78,18 @@ log "Hook scripts deployed to ${SCRIPTS_DIR} (${DEPLOYED} top-level scripts)"
 SESSIONS_DIR="${CLAUDE_DATA}/local-agent-mode-sessions"
 WORKSPACE_COUNT=0
 
-for cw in "${SESSIONS_DIR}"/*/*/cowork_plugins; do
+# Cowork layout has shifted across versions. Older builds nest as
+# <sessions>/<owner>/<workspace>/cowork_plugins/; newer builds flatten to
+# <sessions>/<account>/cowork_plugins/. Discover via find so we work on both.
+COWORK_DIRS=$(find "${SESSIONS_DIR}" -maxdepth 4 -type d -name cowork_plugins 2>/dev/null)
+
+if [ -z "${COWORK_DIRS}" ]; then
+  err "No cowork_plugins directories found under ${SESSIONS_DIR}."
+  err "Open Claude Desktop, send any message in a Cowork chat, then re-run this installer."
+  exit 1
+fi
+
+while IFS= read -r cw; do
   [ -d "$cw" ] || continue
   WORKSPACE_COUNT=$((WORKSPACE_COUNT + 1))
 
@@ -204,11 +215,12 @@ PY_EOF
 
   log "  -> ${MP_ROOT}"
   log "  -> ${CACHE_ROOT}"
-done
+done <<EOF_DIRS
+${COWORK_DIRS}
+EOF_DIRS
 
 if [ "${WORKSPACE_COUNT}" -eq 0 ]; then
-  err "No Cowork workspaces found under ${SESSIONS_DIR}."
-  err "Open Cowork once, then re-run this installer."
+  err "No Cowork workspaces matched. ${SESSIONS_DIR} contained no readable cowork_plugins directories."
   exit 1
 fi
 
