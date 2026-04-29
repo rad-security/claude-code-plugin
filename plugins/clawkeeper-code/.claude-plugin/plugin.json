@@ -1,6 +1,6 @@
 {
   "name": "clawkeeper-code",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Security scanning, threat detection, and Cowork hook for Claude Code and Claude Desktop. Adds /clawkeeper-code:cowork-install \u2014 a PreToolUse hook for Cowork that calls the same evaluate endpoint as Claude Code; rules authored in the dashboard apply to both surfaces. Plus Claude Code threat detection: 24+ patterns, audit, secret scanning, plugin inspection.",
   "author": {
     "name": "RAD Security",
