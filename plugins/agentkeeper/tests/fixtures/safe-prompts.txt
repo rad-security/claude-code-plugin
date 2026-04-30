@@ -1,0 +1,6 @@
+help me write a React component
+explain this error message
+refactor this function to use async/await
+write unit tests for the auth module
+fix the CSS layout issue on mobile
+create a new API endpoint for user profiles
