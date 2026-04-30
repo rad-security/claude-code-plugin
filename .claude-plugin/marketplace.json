@@ -1,16 +1,37 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "clawkeeper",
-  "description": "Security, compliance, and threat detection for the Claude ecosystem. By RAD Security.",
+  "description": "Security, compliance, and threat detection for AI coding agents. By RAD Security.",
   "owner": {
     "name": "RAD Security",
     "email": "support@rad.security"
   },
   "plugins": [
     {
+      "name": "agentkeeper",
+      "source": "./plugins/agentkeeper",
+      "description": "Security scanning, compliance auditing, threat detection, and connected dashboard hooks for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ threat patterns. Works immediately, no account required.",
+      "version": "1.1.3",
+      "author": {
+        "name": "RAD Security",
+        "email": "support@rad.security"
+      },
+      "homepage": "https://www.agentkeeper.dev/claude-code",
+      "repository": "https://github.com/rad-security/claude-code-plugin",
+      "license": "MIT",
+      "category": "security",
+      "keywords": [
+        "security",
+        "scanning",
+        "compliance",
+        "threat-detection",
+        "devsecops"
+      ]
+    },
+    {
       "name": "clawkeeper-code",
       "source": "./plugins/clawkeeper-code",
-      "description": "Security scanning, threat detection, and Cowork hook for Claude Code and Claude Desktop. Adds /clawkeeper-code:cowork-install \u2014 a PreToolUse hook for Cowork that uses the same dashboard policy and evaluate endpoint as Claude Code. Rules authored once apply to both surfaces.",
+      "description": "Security scanning, threat detection, and Cowork hook for Claude Code and Claude Desktop. Adds /clawkeeper-code:cowork-install - a PreToolUse hook for Cowork that uses the same dashboard policy and evaluate endpoint as Claude Code. Rules authored once apply to both surfaces.",
       "version": "1.1.2",
       "author": {
         "name": "RAD Security"
@@ -21,7 +42,7 @@
     {
       "name": "clawkeeper-cowork",
       "source": "./plugins/clawkeeper-cowork",
-      "description": "Data governance and compliance for Cowork. Classifies sensitive data, detects PII, enforces org policies, verifies external recipients, and maintains a full audit trail. Works immediately \u2014 no account required.",
+      "description": "Data governance and compliance for Cowork. Classifies sensitive data, detects PII, enforces org policies, verifies external recipients, and maintains a full audit trail. Works immediately - no account required.",
       "version": "1.0.0",
       "author": {
         "name": "RAD Security"
@@ -29,5 +50,8 @@
       "homepage": "https://clawkeeper.dev",
       "category": "security"
     }
-  ]
+  ],
+  "metadata": {
+    "description": "Security plugins for AI coding agents by RAD Security."
+  }
 }

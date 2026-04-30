@@ -1,0 +1,13 @@
+/etc/shadow
+/etc/passwd
+~/.ssh/authorized_keys
+~/.ssh/config
+~/.bashrc
+~/.zshrc
+~/.bash_profile
+.github/workflows/deploy.yml
+.gitlab-ci.yml
+Jenkinsfile
+/usr/local/bin/backdoor
+/System/Library/LaunchDaemons/evil.plist
+/var/spool/cron/root
