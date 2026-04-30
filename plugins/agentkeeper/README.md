@@ -6,7 +6,7 @@ Threat detection, compliance auditing, and secret scanning for Claude Code sessi
 
 ```
 /plugin marketplace add rad-security/claude-code-plugin
-/plugin install agentkeeper@clawkeeper
+/plugin install agentkeeper
 /reload-plugins
 ```
 

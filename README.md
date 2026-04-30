@@ -1,40 +1,28 @@
-# Clawkeeper — Security for the Claude Ecosystem
+# AgentKeeper Claude Code Plugin
 
-Clawkeeper provides security scanning, threat detection, and compliance auditing for Claude Code and Cowork. Built by [RAD Security](https://rad.security).
+AgentKeeper provides security scanning, threat detection, and compliance auditing for Claude Code. Built by [RAD Security](https://rad.security).
 
-## Plugins
+## Install
 
-### [clawkeeper-code](./plugins/clawkeeper-code) — Claude Code Security
-
-Real-time threat detection for Claude Code sessions. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ patterns. Includes setup auditing, secret scanning, and plugin supply chain inspection.
-
-**Install:**
 ```
 /plugin marketplace add rad-security/claude-code-plugin
-/plugin install clawkeeper-code@clawkeeper
+/plugin install agentkeeper
+/reload-plugins
 ```
 
-### [clawkeeper-cowork](./plugins/clawkeeper-cowork) — Cowork Data Governance
+## Plugin
 
-Data classification, PII detection, and compliance auditing for Cowork. Checks file sensitivity before access, classifies data, verifies external recipients, and maintains a structured audit trail.
+[agentkeeper](./plugins/agentkeeper) adds real-time threat detection for Claude Code sessions. It warns on credential exfiltration, reverse shells, prompt injection, and 24+ patterns. It also includes setup auditing, secret scanning, and plugin supply chain inspection.
 
-**Install:**
-```
-/plugin marketplace add rad-security/claude-code-plugin
-/plugin install clawkeeper-cowork@clawkeeper
-```
-
-## Zero Configuration
-
-Both plugins work immediately on install — no account, no API key, no setup. Connect a free account at [clawkeeper.dev](https://clawkeeper.dev) for your dashboard, threat feed, and fleet visibility.
+AgentKeeper works immediately on install with no account, API key, or setup required. Connect an account at [agentkeeper.dev](https://www.agentkeeper.dev) for dashboard visibility, policy sync, and fleet inventory.
 
 ## Organization Deployment
 
 Admins can deploy to their entire org via Claude Desktop:
 
 1. Organization settings → Plugins → Connect this GitHub repo
-2. Set plugins to "Required" for automatic deployment
-3. Policies managed centrally at [clawkeeper.dev](https://clawkeeper.dev)
+2. Set AgentKeeper to "Required" for automatic deployment
+3. Manage policies centrally at [agentkeeper.dev](https://www.agentkeeper.dev)
 
 ## License
 
