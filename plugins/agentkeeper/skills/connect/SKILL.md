@@ -1,21 +1,91 @@
 ---
 name: connect
-description: Deprecated alias for /agentkeeper:login. Still functional — runs the same device-code flow — but prompts the user to switch to /login going forward.
+description: Connect AgentKeeper to this workstation. Supports interactive device-code browser flow (no args) or headless `--api-key <key>` for CI, managed laptops, and fleet provisioning. Run when the user wants to authenticate, link their account, set up an API key, or paste an existing key.
 ---
 
-# AgentKeeper Connect (deprecated alias for `login`)
+# AgentKeeper Connect
 
-Before doing anything else, display this one-line notice to the user:
+You are helping the user connect the AgentKeeper plugin to their www.agentkeeper.dev account. There are two paths:
 
+- **Interactive (default)**: device-code browser flow. Open a URL, user approves in browser, we receive the key and install hooks.
+- **Headless** (`--api-key <key>`): user supplies an existing API key inline. Validate it server-side, store, install hooks. No browser, no prompts. Required for CI, fleet provisioning (Kanji / Ontra), and SSO-managed laptops where the browser flow is blocked.
+
+After either path succeeds, HTTP hooks are installed into `~/.claude/settings.json` so Claude Code natively sends hook events to the AgentKeeper API.
+
+## Step 0: Parse Arguments
+
+Check the user's slash command invocation for flags:
+
+- If the invocation is `/agentkeeper:connect --api-key <KEY>` or `/agentkeeper:connect --api-key=<KEY>`: take the headless path (Step 1B). The `<KEY>` value is the raw API key string. **Never echo it.**
+- Otherwise: take the interactive path (Step 1 onward, existing flow).
+
+If `--api-key` is present but no value follows, print:
 ```
-Note: /agentkeeper:connect has been renamed to /agentkeeper:login.
-Both work today, but /login is the canonical command and supports
---api-key <key> for headless / CI / fleet-provisioning use cases.
+The --api-key flag requires a value. Usage:
+  /agentkeeper:connect --api-key ak_live_...
+
+Generate a key at https://www.agentkeeper.dev/settings#api-keys
 ```
+and stop.
 
-Then continue with the rest of this skill as written. `/connect` will be removed in a future plugin release.
+## Step 1B: Headless --api-key path
 
-You are helping the user connect their AgentKeeper plugin to their www.agentkeeper.dev account using device authorization. After authentication, you install HTTP hooks into `~/.claude/settings.json` so Claude Code natively sends hook events to the AgentKeeper API.
+1. Validate the key against the health endpoint. Display a brief message while the request is in flight (do NOT echo the key itself):
+
+   ```bash
+   AGENTKEEPER_DIR="$HOME/.agentkeeper-plugin"
+   [ -n "$CLAUDE_PLUGIN_DATA" ] && AGENTKEEPER_DIR="$CLAUDE_PLUGIN_DATA"
+   mkdir -p "$AGENTKEEPER_DIR"
+   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+     "https://www.agentkeeper.dev/api/v1/claude-code/health" \
+     -H "Authorization: Bearer PASTE_KEY_HERE")
+   echo "$HTTP_CODE"
+   ```
+   Replace `PASTE_KEY_HERE` with the value from the `--api-key` arg. Do NOT print the key in any output.
+
+2. If the HTTP status is not `200`:
+   ```
+   That API key did not validate. www.agentkeeper.dev returned HTTP [status].
+
+   Common causes:
+     - Key was revoked or belongs to a deleted org
+     - Typo or extra whitespace in the pasted value
+     - Wrong environment (staging key vs prod)
+
+   Generate a fresh key at https://www.agentkeeper.dev/settings#api-keys
+   ```
+   Stop. Do NOT write the key to disk.
+
+3. If the HTTP status is `200`, write the key and install hooks + register. Use the same Step 5 and Step 6 code blocks as the interactive path. To write the key, use a heredoc so the value never appears on the command line:
+
+   ```bash
+   AGENTKEEPER_DIR="$HOME/.agentkeeper-plugin"
+   [ -n "$CLAUDE_PLUGIN_DATA" ] && AGENTKEEPER_DIR="$CLAUDE_PLUGIN_DATA"
+   mkdir -p "$AGENTKEEPER_DIR"
+   # Use printf with a variable rather than echoing to avoid leaking through `ps`
+   API_KEY_FROM_FLAG="PASTE_KEY_HERE"
+   printf '%s' "$API_KEY_FROM_FLAG" > "$AGENTKEEPER_DIR/api_key"
+   chmod 600 "$AGENTKEEPER_DIR/api_key"
+   unset API_KEY_FROM_FLAG
+   ```
+
+4. Run Step 5 (install HTTP hooks, generates machine_id) and Step 6 (register workstation + skill inventory).
+
+5. Display (never include the API key value):
+   ```
+   Logged in (headless).
+
+   Workstation: [hostname] registered
+   Hooks installed at ~/.claude/settings.json
+   Machine ID generated at $AGENTKEEPER_DIR/machine_id
+
+   Restart Claude Code so hooks load at startup.
+   Dashboard: https://www.agentkeeper.dev/dashboard
+   ```
+
+6. **STOP**. Do not proceed to the interactive Step 2 (device register). The headless path is complete.
+
+**CRITICAL for Step 1B: Never echo the API key in any output, prompt, status message, or confirmation. Never include it in a log. The only legitimate destination for the key value is the `$AGENTKEEPER_DIR/api_key` file (mode 600) and the Authorization header of outbound HTTPS requests.**
 
 ## Step 1: Check Existing Connection
 

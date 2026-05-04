@@ -11,7 +11,7 @@
       "name": "agentkeeper",
       "source": "./plugins/agentkeeper",
       "description": "Security scanning, compliance auditing, threat detection, and connected dashboard hooks for Claude Code. Warns on credential exfiltration, reverse shells, prompt injection, and 24+ threat patterns. Works immediately, no account required.",
-      "version": "1.1.3",
+      "version": "1.1.4",
       "author": {
         "name": "RAD Security",
         "email": "support@rad.security"
