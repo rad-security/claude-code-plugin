@@ -48,6 +48,7 @@ run_suite() {
 
 # ── Run all suites ─────────────────────────────────────────────────────────
 
+run_suite "Command Namespace" "${SCRIPT_DIR}/test-command-namespace.sh"
 run_suite "Local Detection Engine" "${SCRIPT_DIR}/test-local-detect.sh"
 run_suite "Hook Dispatchers" "${SCRIPT_DIR}/test-hooks.sh"
 run_suite "Cursor Adapter" "${SCRIPT_DIR}/test-cursor-adapter.sh"
