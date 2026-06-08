@@ -36,6 +36,32 @@ export HOME="${TMPDIR_ROOT}/home"
 mkdir -p "$CLAUDE_PLUGIN_DATA"
 mkdir -p "$HOME"
 
+FAKE_BIN="${TMPDIR_ROOT}/bin"
+mkdir -p "$FAKE_BIN"
+REAL_PATH="$PATH"
+cat > "$FAKE_BIN/curl" <<'FAKE_CURL'
+#!/usr/bin/env bash
+set -euo pipefail
+
+url=""
+for arg in "$@"; do
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+  esac
+done
+
+if [ -n "${AGENTKEEPER_CAPTURE_URL:-}" ] && [ -n "$url" ]; then
+  printf '%s\n' "$url" > "$AGENTKEEPER_CAPTURE_URL"
+fi
+
+if [ -n "${AGENTKEEPER_FAKE_CURL_RESPONSE:-}" ]; then
+  printf '%s\n' "$AGENTKEEPER_FAKE_CURL_RESPONSE"
+fi
+
+exit 0
+FAKE_CURL
+chmod +x "$FAKE_BIN/curl"
+
 # Create a clean working directory (no .claude/settings.json → no push-hooks conflict)
 WORK_DIR="${TMPDIR_ROOT}/workdir"
 mkdir -p "$WORK_DIR"
@@ -347,6 +373,58 @@ else
   pass "conflict: both http type and agentkeeper URL required — correctly not detected with only URL"
 fi
 
+export HOME="$OLD_HOME"
+rm -rf "$TEST_HOME"
+
+# ── Test 14: SessionStart command hook still returns systemMessage with HTTP hooks ─
+
+TEST_HOME=$(mktemp -d)
+mkdir -p "$TEST_HOME/.claude"
+OLD_HOME="$HOME"
+export HOME="$TEST_HOME"
+export PATH="$FAKE_BIN:$REAL_PATH"
+export CLAUDE_PLUGIN_OPTION_API_KEY="ak_test_sessionstart"
+export AGENTKEEPER_FAKE_CURL_RESPONSE='{"systemMessage":"hello from policy","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"hello from policy"}}'
+URL_CAPTURE="${TMPDIR_ROOT}/sessionstart-url.txt"
+export AGENTKEEPER_CAPTURE_URL="$URL_CAPTURE"
+unset AGENTKEEPER_API_URL
+
+cat > "$TEST_HOME/.claude/settings.json" << 'SETTINGS'
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "https://sandbox.agentkeeper.dev/api/v1/claude-code/checkin"
+          }
+        ]
+      }
+    ]
+  }
+}
+SETTINGS
+
+OUTPUT=$(run_hook "${PLUGIN_ROOT}/scripts/session-start.sh" "$SESSION_PAYLOAD")
+
+if printf '%s' "$OUTPUT" | grep -q '"systemMessage":"hello from policy"'; then
+  pass "session-start: command hook passes through systemMessage with HTTP SessionStart configured"
+else
+  fail "session-start: expected systemMessage passthrough with HTTP SessionStart configured (got: $OUTPUT)"
+fi
+
+if grep -q 'https://sandbox.agentkeeper.dev/api/v1/claude-code/checkin' "$URL_CAPTURE" 2>/dev/null; then
+  pass "session-start: command hook inherits sandbox API origin from HTTP hooks"
+else
+  fail "session-start: expected sandbox checkin URL (got: $(cat "$URL_CAPTURE" 2>/dev/null || true))"
+fi
+
+unset AGENTKEEPER_FAKE_CURL_RESPONSE
+unset AGENTKEEPER_CAPTURE_URL
+unset CLAUDE_PLUGIN_OPTION_API_KEY
+export PATH="$REAL_PATH"
 export HOME="$OLD_HOME"
 rm -rf "$TEST_HOME"
 

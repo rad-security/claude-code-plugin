@@ -27,11 +27,10 @@ trap 'emit_allow; exit 0' ERR
 # Read all of stdin (SessionStart provides session info)
 INPUT=$(cat 2>/dev/null) || true
 
-# If HTTP-based AgentKeeper hooks are already active, defer
-if [ "${AGENTKEEPER_SKIP_CONFLICT_CHECK:-}" != "1" ] && has_agentkeeper_http_hooks; then
-  emit_allow
-  exit 0
-fi
+# SessionStart is authoritative as a command hook. Some Claude Code versions
+# ignore HTTP SessionStart responses while still executing command hooks, so the
+# command path must pass through startup context even when runtime HTTP hooks are
+# configured for prompt/tool evaluation.
 
 # ---- Initialize session ----
 DATA_DIR=$(get_data_dir)
@@ -55,6 +54,9 @@ if [ -n "$API_KEY" ]; then
   # ---- API mode: check in with the server ----
   HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
   MACHINE_ID=$(get_machine_id)
+  API_BASE_URL="${AGENTKEEPER_API_URL:-$(agentkeeper_api_base_from_http_hooks 2>/dev/null || true)}"
+  API_BASE_URL="${API_BASE_URL:-https://www.agentkeeper.dev}"
+  API_BASE_URL="${API_BASE_URL%/}"
 
   # Check script integrity on session start
   if [ -f "${PLUGIN_ROOT}/scripts/lib/integrity.sh" ] || [ -f "${PLUGIN_ROOT}/lib/integrity.sh" ]; then
@@ -75,7 +77,7 @@ if [ -n "$API_KEY" ]; then
           SIGNED_HEADERS_TAMPER+=(-H "X-Timestamp: $TS_TAMPER" -H "X-Device-Signature: $SIG_TAMPER" -H "X-Console-User: ${USER:-unknown}")
         fi
       fi
-      curl -s --max-time 4 -X POST "https://www.agentkeeper.dev/api/v1/shield/events" \
+      curl -s --max-time 4 -X POST "${API_BASE_URL}/api/v1/shield/events" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${API_KEY}" \
         -H "X-Machine-Id: ${MACHINE_ID}" \
@@ -288,7 +290,7 @@ PYEOF
     fi
   fi
   RESPONSE=$(printf '%s' "$CHECKIN_BODY" | curl -s --max-time 10 --fail-with-body \
-    -X POST "https://www.agentkeeper.dev/api/v1/claude-code/checkin" \
+    -X POST "${API_BASE_URL}/api/v1/claude-code/checkin" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "X-Machine-Id: ${MACHINE_ID}" \
