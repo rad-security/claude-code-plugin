@@ -46,6 +46,12 @@ if [ -n "$API_KEY" ]; then
   # ---- API mode: forward to evaluate endpoint ----
   HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
   MACHINE_ID=$(get_machine_id)
+  # Grok Build inherits this hook but needs ?tool=grok routing + exit-2 enforcement.
+  GROK_MODE=0
+  if [ -z "${AGENTKEEPER_API_TOOL:-}" ] && is_grok_payload "$INPUT"; then
+    export AGENTKEEPER_API_TOOL="grok"
+    GROK_MODE=1
+  fi
   API_TOOL="${AGENTKEEPER_API_TOOL:-claude-code}"
   if [ "$API_TOOL" = "claude-code" ]; then
     EVALUATE_URL="https://www.agentkeeper.dev/api/v1/claude-code/evaluate"
@@ -68,12 +74,17 @@ if [ -n "$API_KEY" ]; then
     -H "Authorization: Bearer ${API_KEY}" \
     -H "X-Hostname: ${HOSTNAME_VAL}" \
     -H "X-Machine-Id: ${MACHINE_ID}" \
-    "${SIGNED_HEADERS[@]}" \
+    ${SIGNED_HEADERS[@]+"${SIGNED_HEADERS[@]}"} \
     -d @- 2>/dev/null) || true
 
   if [ -z "$RESPONSE" ]; then
     emit_allow
     exit 0
+  fi
+
+  # Grok enforces via exit code, not the response body.
+  if [ "${GROK_MODE:-0}" = "1" ]; then
+    grok_emit_response "$RESPONSE"
   fi
 
   printf '%s\n' "$RESPONSE"

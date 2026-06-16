@@ -48,6 +48,12 @@ if [ -n "$API_KEY" ]; then
   MACHINE_ID=$(get_machine_id)
   API_BASE_URL="${AGENTKEEPER_API_URL:-https://www.agentkeeper.dev}"
   API_BASE_URL="${API_BASE_URL%/}"
+  # Grok Build inherits this hook but needs ?tool=grok routing + exit-2 enforcement.
+  GROK_MODE=0
+  if [ -z "${AGENTKEEPER_API_TOOL:-}" ] && is_grok_payload "$INPUT"; then
+    export AGENTKEEPER_API_TOOL="grok"
+    GROK_MODE=1
+  fi
   API_TOOL="${AGENTKEEPER_API_TOOL:-claude-code}"
   if [ "$API_TOOL" = "claude-code" ]; then
     EVALUATE_URL="${API_BASE_URL}/api/v1/claude-code/evaluate"
@@ -70,13 +76,18 @@ if [ -n "$API_KEY" ]; then
     -H "Authorization: Bearer ${API_KEY}" \
     -H "X-Hostname: ${HOSTNAME_VAL}" \
     -H "X-Machine-Id: ${MACHINE_ID}" \
-    "${SIGNED_HEADERS[@]}" \
+    ${SIGNED_HEADERS[@]+"${SIGNED_HEADERS[@]}"} \
     -d @- 2>/dev/null) || true
 
   # If curl failed or returned empty, fail-open
   if [ -z "$RESPONSE" ]; then
     emit_allow
     exit 0
+  fi
+
+  # Grok enforces via exit code, not the response body.
+  if [ "${GROK_MODE:-0}" = "1" ]; then
+    grok_emit_response "$RESPONSE"
   fi
 
   # Return API response verbatim

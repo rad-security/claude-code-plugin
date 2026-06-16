@@ -428,6 +428,71 @@ export PATH="$REAL_PATH"
 export HOME="$OLD_HOME"
 rm -rf "$TEST_HOME"
 
+# ── Test 15: Grok Build (CLI) — inherited hook routes to ?tool=grok + exit 2 ─
+
+echo ""
+echo "--- grok-cli (pre-tool-hook.sh) ---"
+export PATH="$FAKE_BIN:$REAL_PATH"
+export CLAUDE_PLUGIN_OPTION_API_KEY="ak_test_grok"
+unset AGENTKEEPER_API_TOOL 2>/dev/null || true
+unset AGENTKEEPER_API_URL 2>/dev/null || true
+URL_CAPTURE="${TMPDIR_ROOT}/grok-url.txt"
+export AGENTKEEPER_CAPTURE_URL="$URL_CAPTURE"
+
+# Grok PreToolUse payload: camelCase keys, snake_case event value.
+GROK_PRE='{"hookEventName":"pre_tool_use","toolName":"Shell","toolInput":{"command":"echo hi"},"cwd":"/tmp","workspaceRoot":"/tmp"}'
+
+# deny → exit 2, reason on stderr, routed to ?tool=grok
+export AGENTKEEPER_FAKE_CURL_RESPONSE='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"blocked by test"}}'
+set +e
+GROK_ERR=$( (cd "$WORK_DIR" && printf '%s' "$GROK_PRE" | "${PLUGIN_ROOT}/scripts/pre-tool-hook.sh" 2>&1 1>/dev/null) )
+GROK_CODE=$?
+set -e
+
+if [ "$GROK_CODE" = "2" ]; then
+  pass "pre-tool(grok): deny verdict exits 2"
+else
+  fail "pre-tool(grok): expected exit 2 (got: $GROK_CODE)"
+fi
+if printf '%s' "$GROK_ERR" | grep -q 'blocked by test'; then
+  pass "pre-tool(grok): block reason printed to stderr"
+else
+  fail "pre-tool(grok): expected reason on stderr (got: $GROK_ERR)"
+fi
+if grep -q 'tool=grok' "$URL_CAPTURE" 2>/dev/null; then
+  pass "pre-tool(grok): routed to /api/v1/evaluate?tool=grok"
+else
+  fail "pre-tool(grok): expected ?tool=grok (got: $(cat "$URL_CAPTURE" 2>/dev/null || true))"
+fi
+
+# allow → exit 0
+export AGENTKEEPER_FAKE_CURL_RESPONSE='{}'
+set +e
+(cd "$WORK_DIR" && printf '%s' "$GROK_PRE" | "${PLUGIN_ROOT}/scripts/pre-tool-hook.sh" >/dev/null 2>&1)
+GROK_CODE=$?
+set -e
+if [ "$GROK_CODE" = "0" ]; then
+  pass "pre-tool(grok): allow verdict exits 0"
+else
+  fail "pre-tool(grok): expected exit 0 on allow (got: $GROK_CODE)"
+fi
+
+# A Claude Code (snake_case) payload must NOT be detected as grok
+rm -f "$URL_CAPTURE"
+export AGENTKEEPER_FAKE_CURL_RESPONSE='{}'
+CC_PAYLOAD='{"tool_name":"Bash","tool_input":{"command":"echo hi"},"hook_event_name":"PreToolUse"}'
+(cd "$WORK_DIR" && printf '%s' "$CC_PAYLOAD" | "${PLUGIN_ROOT}/scripts/pre-tool-hook.sh" >/dev/null 2>&1) || true
+if grep -q 'claude-code/evaluate' "$URL_CAPTURE" 2>/dev/null; then
+  pass "pre-tool(cc): claude-code payload routes to claude-code endpoint, not grok"
+else
+  fail "pre-tool(cc): expected claude-code endpoint (got: $(cat "$URL_CAPTURE" 2>/dev/null || true))"
+fi
+
+unset AGENTKEEPER_FAKE_CURL_RESPONSE
+unset AGENTKEEPER_CAPTURE_URL
+unset CLAUDE_PLUGIN_OPTION_API_KEY
+export PATH="$REAL_PATH"
+
 # ── Summary ────────────────────────────────────────────────────────────────
 
 TOTAL=$((PASS + FAIL))

@@ -77,3 +77,32 @@ emit_warn() {
       ;;
   esac
 }
+
+# --- Grok Build (xAI CLI) support -------------------------------------------
+# Grok Build runs the Claude Code harness and inherits these hooks, but sends a
+# camelCase payload (hookEventName/toolName) the server's claude-code normalizer
+# can't read, and enforces blocks ONLY via the hook exit code (2) — it ignores
+# the JSON response body. These helpers let the shared dispatchers detect Grok,
+# route it to ?tool=grok, and translate a deny verdict into exit 2.
+
+# True (0) when the stdin payload is a Grok hook event. Keys off the camelCase
+# event key paired with a snake_case event value, which neither Claude Code
+# (snake key) nor file content is likely to produce.
+# Usage: if is_grok_payload "$INPUT"; then ...
+is_grok_payload() {
+  printf '%s' "$1" | grep -Eq '"hookEventName"[[:space:]]*:[[:space:]]*"(pre_tool_use|post_tool_use|user_prompt_submit)"'
+}
+
+# Translate an AgentKeeper evaluate response into Grok's exit-code contract and
+# exit: deny -> reason on stderr + exit 2; anything else -> exit 0.
+# Call last in the dispatcher; this function exits the process.
+# Usage: grok_emit_response "$RESPONSE"
+grok_emit_response() {
+  local response="$1" reason
+  if printf '%s' "$response" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"deny"|"decision"[[:space:]]*:[[:space:]]*"block"'; then
+    reason=$(printf '%s' "$response" | grep -oE '"(permissionDecisionReason|reason)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/') || true
+    printf '%s\n' "${reason:-Blocked by AgentKeeper security policy}" >&2
+    exit 2
+  fi
+  exit 0
+}
