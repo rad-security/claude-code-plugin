@@ -294,7 +294,7 @@ PYEOF
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "X-Machine-Id: ${MACHINE_ID}" \
-    "${SIGNED_HEADERS[@]}" \
+    ${SIGNED_HEADERS[@]+"${SIGNED_HEADERS[@]}"} \
     -d @- 2>/dev/null) || true
 
   # If the API returned context, pass it through; otherwise allow

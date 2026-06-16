@@ -66,7 +66,7 @@ if [ -n "$API_KEY" ]; then
     -H "Authorization: Bearer ${API_KEY}" \
     -H "X-Hostname: ${HOSTNAME_VAL}" \
     -H "X-Machine-Id: ${MACHINE_ID}" \
-    "${SIGNED_HEADERS[@]}" \
+    ${SIGNED_HEADERS[@]+"${SIGNED_HEADERS[@]}"} \
     -d "$INPUT" >/dev/null 2>&1 || true
 
   # Always allow — audit is fire-and-forget
