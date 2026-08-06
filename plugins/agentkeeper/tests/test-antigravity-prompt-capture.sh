@@ -52,7 +52,7 @@ echo "=== Antigravity Prompt Capture Tests ==="
 printf '%s\n' \
   '{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nfirst prompt\n</USER_REQUEST>"}' \
   '{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"ok"}' \
-  '{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nList the PHI folder\n</USER_REQUEST>"}' \
+  '{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nList the PHI folder\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current directory is /x\n</ADDITIONAL_METADATA>"}' \
   > "$STUB/t1.jsonl"
 run_preinvocation "$STUB/t1.jsonl"
 if [ "$EXIT_CODE" -eq 0 ] && grep -q '"prompt": "List the PHI folder"' "$CAPTURE"; then
