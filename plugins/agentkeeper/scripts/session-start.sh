@@ -125,12 +125,20 @@ except:
     fi
   fi
 
+  GIT_REMOTE_VAL=""
+  if [ -n "$CWD_VAL" ] && command -v git &>/dev/null; then
+    GIT_REMOTE_VAL=$(git -C "$CWD_VAL" remote get-url origin 2>/dev/null || true)
+  fi
+
   EXTRA_FIELDS=""
   if [ -n "$SESSION_ID" ]; then
     EXTRA_FIELDS=$(printf '%s,"session_id":"%s"' "$EXTRA_FIELDS" "$(_json_escape "$SESSION_ID")")
   fi
   if [ -n "$CWD_VAL" ]; then
     EXTRA_FIELDS=$(printf '%s,"cwd":"%s"' "$EXTRA_FIELDS" "$(_json_escape "$CWD_VAL")")
+  fi
+  if [ -n "$GIT_REMOTE_VAL" ]; then
+    EXTRA_FIELDS=$(printf '%s,"git_remote_url":"%s"' "$EXTRA_FIELDS" "$(_json_escape "$GIT_REMOTE_VAL")")
   fi
 
   # Scan installed agent skills. Mirrors the Python logic in
