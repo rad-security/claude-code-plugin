@@ -47,13 +47,27 @@ run_preinvocation() {
 
 echo "=== Antigravity Prompt Capture Tests ==="
 
-# 1. User turn present → prompt forwarded.
-printf '%s\n' '{"actor":"Model","text":"working"}' '{"actor":"User","content":[{"text":"List the PHI folder"}]}' > "$STUB/t1.jsonl"
+# 1. Real Antigravity CLI schema: type=USER_INPUT, content wrapped in
+#    <USER_REQUEST>. Must extract the LATEST user turn, unwrapped.
+printf '%s\n' \
+  '{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nfirst prompt\n</USER_REQUEST>"}' \
+  '{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"ok"}' \
+  '{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\nList the PHI folder\n</USER_REQUEST>"}' \
+  > "$STUB/t1.jsonl"
 run_preinvocation "$STUB/t1.jsonl"
 if [ "$EXIT_CODE" -eq 0 ] && grep -q '"prompt": "List the PHI folder"' "$CAPTURE"; then
-  pass "extracts latest user turn and forwards it as prompt"
+  pass "extracts latest USER_INPUT turn, unwrapped, and forwards it as prompt"
 else
-  fail "should forward the user turn (got: $(cat "$CAPTURE"))"
+  fail "should forward the unwrapped user turn (got: $(cat "$CAPTURE"))"
+fi
+
+# 1b. Generic fallback schema (role/content) still works for IDE/SDK variants.
+printf '%s\n' '{"role":"assistant","text":"hi"}' '{"role":"user","content":[{"text":"generic turn"}]}' > "$STUB/t1b.jsonl"
+run_preinvocation "$STUB/t1b.jsonl"
+if [ "$EXIT_CODE" -eq 0 ] && grep -q '"prompt": "generic turn"' "$CAPTURE"; then
+  pass "still handles the generic role/content schema"
+else
+  fail "generic role/content schema should still work (got: $(cat "$CAPTURE"))"
 fi
 
 # 2. Antigravity markers preserved so the server keeps the antigravity surface.

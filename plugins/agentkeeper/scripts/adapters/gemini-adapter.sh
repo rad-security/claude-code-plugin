@@ -215,7 +215,7 @@ _ag_transcript_prompt() {
   # $1 = transcript file path. Prints the latest user-turn text (or nothing).
   command -v python3 >/dev/null 2>&1 || return 0
   TRANSCRIPT_PATH="$1" python3 -c '
-import json, os, sys
+import json, os, re, sys
 
 path = os.environ.get("TRANSCRIPT_PATH", "")
 if not path or not os.path.isfile(path):
@@ -226,8 +226,18 @@ try:
 except Exception:
     sys.exit(0)
 
+# Antigravity CLI marks the user turn with type=USER_INPUT / source=USER_EXPLICIT
+# and stores the text in `content` wrapped in <USER_REQUEST>...</USER_REQUEST>.
+# The other spellings cover IDE / SDK / future schema variants.
 USER_ACTORS = {"user", "human", "userturn", "user_message", "user_input", "userinput"}
-TEXT_KEYS = ["text", "content", "prompt", "message", "input", "query"]
+USER_SOURCES = {"user_explicit", "user"}
+TEXT_KEYS = ["content", "text", "prompt", "message", "input", "query"]
+
+def unwrap(text):
+    if not isinstance(text, str):
+        return ""
+    match = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", text, re.S)
+    return (match.group(1) if match else text).strip()
 
 def text_from(value):
     if isinstance(value, str):
@@ -251,7 +261,8 @@ def user_text(obj):
     if not isinstance(obj, dict):
         return ""
     actor = str(obj.get("actor") or obj.get("role") or obj.get("author") or obj.get("type") or "").lower()
-    if actor not in USER_ACTORS:
+    source = str(obj.get("source") or "").lower()
+    if actor not in USER_ACTORS and source not in USER_SOURCES:
         msg = obj.get("message")
         if isinstance(msg, dict):
             inner = str(msg.get("role") or msg.get("actor") or "").lower()
@@ -263,7 +274,7 @@ def user_text(obj):
             return ""
     for key in TEXT_KEYS:
         if key in obj:
-            t = text_from(obj[key])
+            t = unwrap(text_from(obj[key]))
             if t:
                 return t
     return ""
