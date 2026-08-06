@@ -199,6 +199,110 @@ print(json.dumps(out))
   fi
 }
 
+# ── Antigravity prompt capture ────────────────────────────────────────
+# Antigravity fires PreInvocation with NO prompt in the payload (only
+# invocationNum + common fields incl. transcriptPath). The user's prompt lives
+# in the transcript file. Read the latest USER turn from it and forward it as a
+# UserPromptSubmit so prompt activity is captured (Codex/Claude already do this
+# natively). Fail-open everywhere: a missing / encrypted / unknown-schema
+# transcript yields no prompt and no regression.
+#
+# NOTE: the transcript JSONL schema is not publicly documented — the actor/text
+# field mapping below is provisional and must be validated against a real
+# Antigravity transcript sample before this is considered final. Keep the
+# candidate field lists here as the single tuning point.
+_ag_transcript_prompt() {
+  # $1 = transcript file path. Prints the latest user-turn text (or nothing).
+  command -v python3 >/dev/null 2>&1 || return 0
+  TRANSCRIPT_PATH="$1" python3 -c '
+import json, os, sys
+
+path = os.environ.get("TRANSCRIPT_PATH", "")
+if not path or not os.path.isfile(path):
+    sys.exit(0)
+try:
+    with open(path, "r", errors="ignore") as fh:
+        lines = fh.readlines()
+except Exception:
+    sys.exit(0)
+
+USER_ACTORS = {"user", "human", "userturn", "user_message", "user_input", "userinput"}
+TEXT_KEYS = ["text", "content", "prompt", "message", "input", "query"]
+
+def text_from(value):
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts = []
+        for part in value:
+            if isinstance(part, dict):
+                t = part.get("text") or part.get("content")
+                if isinstance(t, str) and t.strip():
+                    parts.append(t.strip())
+            elif isinstance(part, str) and part.strip():
+                parts.append(part.strip())
+        return "\n".join(parts).strip()
+    if isinstance(value, dict):
+        t = value.get("text") or value.get("content")
+        return t.strip() if isinstance(t, str) else ""
+    return ""
+
+def user_text(obj):
+    if not isinstance(obj, dict):
+        return ""
+    actor = str(obj.get("actor") or obj.get("role") or obj.get("author") or obj.get("type") or "").lower()
+    if actor not in USER_ACTORS:
+        msg = obj.get("message")
+        if isinstance(msg, dict):
+            inner = str(msg.get("role") or msg.get("actor") or "").lower()
+            if inner in USER_ACTORS:
+                obj = msg
+            else:
+                return ""
+        else:
+            return ""
+    for key in TEXT_KEYS:
+        if key in obj:
+            t = text_from(obj[key])
+            if t:
+                return t
+    return ""
+
+for line in reversed(lines):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        obj = json.loads(line)
+    except Exception:
+        continue
+    t = user_text(obj)
+    if t:
+        sys.stdout.write(t[:8000])
+        break
+' 2>/dev/null
+}
+
+_ag_inject_prompt() {
+  # Reads the raw payload on stdin, injects PROMPT_TEXT as `prompt`, and marks
+  # it as a UserPromptSubmit so the server normalizes it to a UserPrompt event
+  # under the Antigravity surface (the payload keeps its antigravity markers).
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 -c '
+import json, os, sys
+prompt = os.environ.get("PROMPT_TEXT", "")
+try:
+    d = json.load(sys.stdin)
+    if not isinstance(d, dict):
+        d = {}
+except Exception:
+    d = {}
+d["prompt"] = prompt
+d.setdefault("hook_event_name", "UserPromptSubmit")
+print(json.dumps(d))
+' 2>/dev/null
+}
+
 response_reason() {
   local response="$1"
   if command -v python3 >/dev/null 2>&1; then
@@ -237,6 +341,29 @@ case "$HOOK_EVENT" in
     ;;
   BeforeAgent|UserPromptSubmit|user_prompt_submit|prompt)
     RESPONSE=$(printf '%s' "$NORMALIZED" | "${PLUGIN_ROOT}/scripts/prompt-hook.sh" 2>/dev/null) || true
+    ;;
+  PreInvocation|pre_invocation)
+    # Capture the user prompt from the transcript (Antigravity omits it from the
+    # hook payload). Fire-and-forget: never blocks or alters the invocation.
+    TRANSCRIPT=$(printf '%s' "$INPUT" | read_field "transcriptPath")
+    [ -n "$TRANSCRIPT" ] || TRANSCRIPT=$(printf '%s' "$INPUT" | read_field "transcript_path")
+    if [ -n "$TRANSCRIPT" ]; then
+      PROMPT_TEXT=$(_ag_transcript_prompt "$TRANSCRIPT") || true
+      if [ -n "${PROMPT_TEXT:-}" ]; then
+        SID=$(printf '%s' "$INPUT" | read_field "conversationId")
+        [ -n "$SID" ] || SID=$(printf '%s' "$INPUT" | read_field "conversation_id")
+        PHASH=$(printf '%s' "$PROMPT_TEXT" | cksum 2>/dev/null | awk '{print $1}')
+        SEND=1
+        if type is_duplicate >/dev/null 2>&1 && is_duplicate "gemini:userprompt:${SID}:${PHASH}" 2>/dev/null; then
+          SEND=0
+        fi
+        if [ "$SEND" = "1" ]; then
+          printf '%s' "$INPUT" | PROMPT_TEXT="$PROMPT_TEXT" _ag_inject_prompt \
+            | "${PLUGIN_ROOT}/scripts/prompt-hook.sh" >/dev/null 2>&1 || true
+        fi
+      fi
+    fi
+    exit 0
     ;;
   Stop)
     exit 0
