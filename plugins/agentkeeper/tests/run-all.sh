@@ -56,6 +56,7 @@ run_suite "Windsurf Adapter" "${SCRIPT_DIR}/test-windsurf-adapter.sh"
 run_suite "Copilot Adapter" "${SCRIPT_DIR}/test-copilot-adapter.sh"
 run_suite "Codex Adapter" "${SCRIPT_DIR}/test-codex-adapter.sh"
 run_suite "Gemini Adapter" "${SCRIPT_DIR}/test-gemini-adapter.sh"
+run_suite "Antigravity Prompt Capture" "${SCRIPT_DIR}/test-antigravity-prompt-capture.sh"
 run_suite "Device Keypair" "${SCRIPT_DIR}/test-device-key.sh"
 run_suite "Cowork Hook Installer" "${SCRIPT_DIR}/test-cowork-install.sh"
 
