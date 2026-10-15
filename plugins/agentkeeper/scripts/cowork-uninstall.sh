@@ -12,6 +12,9 @@ esac
 SESSIONS_DIR="${CLAUDE_DATA}/local-agent-mode-sessions"
 log() { printf '  %s\n' "$*"; }
 
+# shellcheck disable=SC1090
+source "$(cd "$(dirname "$0")" && pwd)/lib/cowork-json.sh" 2>/dev/null || true
+
 if [ ! -d "${SESSIONS_DIR}" ]; then
   echo "No Cowork session directory found. Nothing to uninstall."
   exit 0
@@ -36,53 +39,21 @@ while IFS= read -r cw; do
     TOUCHED=1
   fi
 
-  python3 - "$cw" <<'PY_EOF'
-import json
-import os
-import sys
-
-cw_dir = sys.argv[1]
-
-def load(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-def save(path, obj):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, path)
-
-known_path = os.path.join(cw_dir, "known_marketplaces.json")
-known = load(known_path)
-if isinstance(known, dict) and "agentkeeper" in known:
-    del known["agentkeeper"]
-    save(known_path, known)
-
-installed_path = os.path.join(cw_dir, "installed_plugins.json")
-installed = load(installed_path)
-if isinstance(installed, dict) and isinstance(installed.get("plugins"), dict):
-    if "cowork-guardrail@agentkeeper" in installed["plugins"]:
-        del installed["plugins"]["cowork-guardrail@agentkeeper"]
-        save(installed_path, installed)
-
-settings_path = os.path.join(os.path.dirname(cw_dir), "cowork_settings.json")
-settings = load(settings_path)
-if isinstance(settings, dict):
-    changed = False
-    if isinstance(settings.get("enabledPlugins"), dict) and "cowork-guardrail@agentkeeper" in settings["enabledPlugins"]:
-        del settings["enabledPlugins"]["cowork-guardrail@agentkeeper"]
-        changed = True
-    if isinstance(settings.get("extraKnownMarketplaces"), dict) and "agentkeeper" in settings["extraKnownMarketplaces"]:
-        del settings["extraKnownMarketplaces"]["agentkeeper"]
-        changed = True
-    if changed:
-        save(settings_path, settings)
-PY_EOF
+  if command -v plutil >/dev/null 2>&1; then
+    if cowork_json_begin "${cw}/known_marketplaces.json"; then
+      cowork_json_remove "agentkeeper"
+      cowork_json_commit || true
+    fi
+    if cowork_json_begin "${cw}/installed_plugins.json"; then
+      cowork_json_remove "plugins.cowork-guardrail@agentkeeper"
+      cowork_json_commit || true
+    fi
+    if cowork_json_begin "$(dirname "$cw")/cowork_settings.json"; then
+      cowork_json_remove "enabledPlugins.cowork-guardrail@agentkeeper"
+      cowork_json_remove "extraKnownMarketplaces.agentkeeper"
+      cowork_json_commit || true
+    fi
+  fi
 
   if [ "$TOUCHED" = "1" ]; then
     log "Cleaned: ${workspace_dir##*/}"
@@ -94,6 +65,32 @@ EOF_DIRS
 
 if [ "$REMOVED" -eq 0 ]; then
   log "No AgentKeeper Cowork install found in any workspace."
+fi
+
+# Remove any AgentKeeper MCP server entries left by the MCP gateway installer.
+if command -v plutil >/dev/null 2>&1; then
+  for path in "$HOME/.claude/settings.json" "$HOME/.mcp.json" "$HOME/.claude/.mcp.json"; do
+    [ -f "$path" ] || continue
+    keys="$(plutil -extract mcpServers raw "$path" 2>/dev/null || true)"
+    [ -n "$keys" ] || continue
+    removed=""
+    if cowork_json_begin "$path"; then
+      while IFS= read -r key; do
+        [ -n "$key" ] || continue
+        lower="$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')"
+        case "$lower" in
+          *agentkeeper*)
+            cowork_json_remove "mcpServers.${key}"
+            removed="${removed}${removed:+, }${key}"
+            ;;
+        esac
+      done <<EOF_KEYS
+${keys}
+EOF_KEYS
+      cowork_json_commit || true
+    fi
+    [ -n "$removed" ] && log "Removed MCP entries from $(basename "$path"): ${removed}"
+  done
 fi
 
 echo

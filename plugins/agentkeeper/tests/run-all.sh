@@ -58,6 +58,8 @@ run_suite "Codex Adapter" "${SCRIPT_DIR}/test-codex-adapter.sh"
 run_suite "Gemini Adapter" "${SCRIPT_DIR}/test-gemini-adapter.sh"
 run_suite "Antigravity Prompt Capture" "${SCRIPT_DIR}/test-antigravity-prompt-capture.sh"
 run_suite "Device Keypair" "${SCRIPT_DIR}/test-device-key.sh"
+run_suite "Runtime Identity Evidence" "${SCRIPT_DIR}/test-runtime-identity.sh"
+run_suite "Inventory Lite" "${SCRIPT_DIR}/test-inventory-lite.sh"
 run_suite "Cowork Hook Installer" "${SCRIPT_DIR}/test-cowork-install.sh"
 
 # ── Final Summary ──────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@
 
 set -eu
 
-VERSION="0.3.0"
+VERSION="0.3.11"
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="${AGENTKEEPER_INSTALL_DIR:-$HOME/.agentkeeper}"
 SCRIPTS_DIR="${INSTALL_DIR}/scripts"
@@ -18,7 +18,13 @@ API_URL="${API_URL%/}"
 err() { printf 'Error: %s\n' "$*" >&2; }
 log() { printf '  %s\n' "$*"; }
 
-case "$(uname -s)" in
+# shellcheck disable=SC1090
+source "${SOURCE_DIR}/lib/json-helpers.sh" 2>/dev/null || true
+# shellcheck disable=SC1090
+source "${SOURCE_DIR}/lib/cowork-json.sh" 2>/dev/null || true
+
+OS_NAME="$(uname -s)"
+case "$OS_NAME" in
   Darwin)
     CLAUDE_DATA="$HOME/Library/Application Support/Claude"
     ;;
@@ -40,10 +46,14 @@ if [ ! -d "$SESSIONS_DIR" ]; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  err "python3 is required to merge Cowork plugin registry JSON."
-  err "Install Xcode Command Line Tools: xcode-select --install"
+HAS_PLUTIL=0
+if command -v plutil >/dev/null 2>&1; then
+  HAS_PLUTIL=1
+elif [ "$OS_NAME" = "Darwin" ]; then
+  err "macOS plutil is required to merge Cowork plugin registry JSON."
   exit 1
+else
+  log "macOS plutil is not available; using best-effort Linux registry writes."
 fi
 
 echo "Installing AgentKeeper Cowork hook v${VERSION}..."
@@ -121,131 +131,211 @@ while IFS= read -r cw; do
 
   mkdir -p "${MP_ROOT}/.claude-plugin" \
            "${PLUGIN_ROOT}/.claude-plugin" \
+           "${PLUGIN_ROOT}/claude-plugin" \
            "${PLUGIN_ROOT}/hooks" \
            "${CACHE_ROOT}/.claude-plugin" \
+           "${CACHE_ROOT}/claude-plugin" \
            "${CACHE_ROOT}/hooks"
 
-  python3 - "$cw" "$MP_ROOT" "$PLUGIN_ROOT" "$CACHE_ROOT" "$VERSION" "$HOOK_SCRIPT" "$API_URL" <<'PY_EOF'
-import datetime
-import json
-import os
-import shlex
-import sys
+  now="$(cowork_iso_now)"
+  hook_cmd="/bin/sh -c 'AGENTKEEPER_SKIP_CONFLICT_CHECK=1 AGENTKEEPER_API_TOOL=cowork AGENTKEEPER_API_URL=${API_URL} exec \"\${CLAUDE_PLUGIN_ROOT}/scripts/pre-tool-hook.sh\"'"
+  hook_cmd_json="$(cowork_json_escape "$hook_cmd")"
+  mp_root_json="$(cowork_json_escape "$MP_ROOT")"
+  cache_root_json="$(cowork_json_escape "$CACHE_ROOT")"
 
-cw_dir, mp_root, plugin_root, cache_root, version, hook_script, api_url = sys.argv[1:8]
-now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-hook_inner = f'AGENTKEEPER_SKIP_CONFLICT_CHECK=1 AGENTKEEPER_API_TOOL=cowork AGENTKEEPER_API_URL={shlex.quote(api_url)} exec "{hook_script}"'
-hook_cmd = f"/bin/sh -c {shlex.quote(hook_inner)}"
+  for path in \
+    "${MP_ROOT}/.claude-plugin/marketplace.json" \
+    "${PLUGIN_ROOT}/.claude-plugin/plugin.json" \
+    "${CACHE_ROOT}/.claude-plugin/plugin.json" \
+    "${PLUGIN_ROOT}/claude-plugin/plugin.json" \
+    "${CACHE_ROOT}/claude-plugin/plugin.json" \
+    "${PLUGIN_ROOT}/hooks/hooks.json" \
+    "${CACHE_ROOT}/hooks/hooks.json"
+  do
+    mkdir -p "$(dirname "$path")"
+  done
 
-def load(path, default):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-def save(path, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, path)
-
-marketplace = {
-    "name": "agentkeeper",
-    "owner": {"name": "AgentKeeper", "email": "support@rad.security"},
-    "plugins": [{
-        "name": "cowork-guardrail",
-        "source": "./cowork-guardrail",
-        "description": "PreToolUse hook for Claude Cowork. Calls AgentKeeper's policy engine with source_tool=cowork."
-    }],
+  cat > "${MP_ROOT}/.claude-plugin/marketplace.json" <<EOF_JSON
+{
+  "name": "agentkeeper",
+  "owner": { "name": "AgentKeeper", "email": "support@rad.security" },
+  "plugins": [
+    {
+      "name": "cowork-guardrail",
+      "source": "./cowork-guardrail",
+      "description": "UserPromptSubmit and PreToolUse hooks for Claude Cowork. Calls AgentKeeper's policy engine with source_tool=cowork."
+    }
+  ]
 }
-save(os.path.join(mp_root, ".claude-plugin", "marketplace.json"), marketplace)
+EOF_JSON
 
-plugin = {
-    "name": "cowork-guardrail",
-    "version": version,
-    "description": "AgentKeeper PreToolUse hook for Claude Cowork. Dashboard rules apply to Claude Code and Cowork.",
-    "author": {"name": "AgentKeeper", "email": "support@rad.security"},
-    "homepage": "https://www.agentkeeper.dev/docs/cowork-plugin",
+  plugin_json="$(cat <<EOF_JSON
+{
+  "name": "cowork-guardrail",
+  "version": "${VERSION}",
+  "installationPreference": "required",
+  "description": "AgentKeeper UserPromptSubmit and PreToolUse hooks for Claude Cowork. Dashboard rules apply to Claude Code and Cowork.",
+  "author": { "name": "AgentKeeper", "email": "support@rad.security" },
+  "homepage": "https://docs.agentkeeper.dev/connect/agents/cowork-plugin",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "${hook_cmd_json}", "timeout": 5, "_agentkeeper": true }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "${hook_cmd_json}", "timeout": 5, "_agentkeeper": true }
+        ]
+      }
+    ]
+  }
 }
-save(os.path.join(plugin_root, ".claude-plugin", "plugin.json"), plugin)
-save(os.path.join(cache_root, ".claude-plugin", "plugin.json"), plugin)
+EOF_JSON
+)"
+  hooks_json="$(cat <<EOF_JSON
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "${hook_cmd_json}", "timeout": 5, "_agentkeeper": true }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "${hook_cmd_json}", "timeout": 5, "_agentkeeper": true }
+        ]
+      }
+    ]
+  }
+}
+EOF_JSON
+)"
+  for path in \
+    "${PLUGIN_ROOT}/.claude-plugin/plugin.json" \
+    "${CACHE_ROOT}/.claude-plugin/plugin.json" \
+    "${PLUGIN_ROOT}/claude-plugin/plugin.json" \
+    "${CACHE_ROOT}/claude-plugin/plugin.json"
+  do
+    printf '%s\n' "$plugin_json" > "$path"
+  done
+  printf '{ "version": "%s" }\n' "$VERSION" > "${PLUGIN_ROOT}/version.json"
+  printf '{ "version": "%s" }\n' "$VERSION" > "${CACHE_ROOT}/version.json"
+  printf '{ "version": "%s" }\n' "$VERSION" > "${PLUGIN_ROOT}/claude-plugin/version.json"
+  printf '{ "version": "%s" }\n' "$VERSION" > "${CACHE_ROOT}/claude-plugin/version.json"
+  printf '%s\n' "$hooks_json" > "${PLUGIN_ROOT}/hooks/hooks.json"
+  printf '%s\n' "$hooks_json" > "${CACHE_ROOT}/hooks/hooks.json"
 
-readme = """# AgentKeeper Cowork Guardrail
+  for root in "${PLUGIN_ROOT}" "${CACHE_ROOT}"; do
+    cat > "${root}/README.md" <<'EOF_README'
+# AgentKeeper Cowork Guardrail
 
-PreToolUse hook for Claude Cowork that evaluates each tool envelope against
-AgentKeeper dashboard policy and records activity with source_tool=cowork.
+UserPromptSubmit and PreToolUse hooks for Claude Cowork that evaluate prompts
+and tool envelopes against AgentKeeper dashboard policy and record activity
+with source_tool=cowork.
 
 - Policy: authored in the AgentKeeper dashboard
 - API key: ~/.agentkeeper-plugin/api_key or ~/.agentkeeper/config/api_key
 - Fails open if the API is unreachable
-"""
-for root in (plugin_root, cache_root):
-    with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as f:
-        f.write(readme)
+EOF_README
+  done
 
-hooks = {
-    "hooks": {
-        "PreToolUse": [{
-            "matcher": "*",
-            "hooks": [{
-                "type": "command",
-                "command": hook_cmd,
-                "timeout": 5,
-                "_agentkeeper": True,
-            }],
-        }],
-    },
+  settings_path="$(dirname "$cw")/cowork_settings.json"
+  if [ "$HAS_PLUTIL" -eq 1 ]; then
+    if cowork_json_begin "${cw}/known_marketplaces.json"; then
+      cowork_json_set_json "agentkeeper" "{ \"source\": { \"source\": \"local\", \"path\": \"${mp_root_json}\" }, \"installLocation\": \"${mp_root_json}\", \"lastUpdated\": \"${now}\" }" || true
+      cowork_json_commit || true
+    fi
+
+    if cowork_json_begin "$settings_path"; then
+      cowork_json_ensure_dict "enabledPlugins" || true
+      cowork_json_set_bool "enabledPlugins.cowork-guardrail@agentkeeper" "true" || true
+      cowork_json_ensure_dict "extraKnownMarketplaces" || true
+      cowork_json_set_json "extraKnownMarketplaces.agentkeeper" "{ \"source\": { \"source\": \"local\", \"path\": \"${mp_root_json}\" } }" || true
+      cowork_json_commit || true
+    fi
+
+    if cowork_json_begin "${cw}/installed_plugins.json"; then
+      cowork_json_set_json "version" "2" || true
+      cowork_json_ensure_dict "plugins" || true
+      cowork_json_set_json "plugins.cowork-guardrail@agentkeeper" "[{ \"scope\": \"user\", \"installPath\": \"${cache_root_json}\", \"version\": \"${VERSION}\", \"installedAt\": \"${now}\", \"lastUpdated\": \"${now}\" }]" || true
+      cowork_json_commit || true
+    fi
+  else
+    if [ -f "${cw}/known_marketplaces.json" ]; then
+      log "Preserving existing ${cw}/known_marketplaces.json because plutil is unavailable."
+    else
+      cat > "${cw}/known_marketplaces.json" <<EOF_JSON
+{
+  "agentkeeper": {
+    "source": { "source": "local", "path": "${mp_root_json}" },
+    "installLocation": "${mp_root_json}",
+    "lastUpdated": "${now}"
+  }
 }
-save(os.path.join(plugin_root, "hooks", "hooks.json"), hooks)
-save(os.path.join(cache_root, "hooks", "hooks.json"), hooks)
+EOF_JSON
+    fi
 
-km_path = os.path.join(cw_dir, "known_marketplaces.json")
-known = load(km_path, {})
-if not isinstance(known, dict):
-    known = {}
-known["agentkeeper"] = {
-    "source": {"source": "local", "path": mp_root},
-    "installLocation": mp_root,
-    "lastUpdated": now,
+    if [ -f "$settings_path" ]; then
+      log "Preserving existing ${settings_path} because plutil is unavailable."
+    else
+      cat > "$settings_path" <<EOF_JSON
+{
+  "enabledPlugins": {
+    "cowork-guardrail@agentkeeper": true
+  },
+  "extraKnownMarketplaces": {
+    "agentkeeper": {
+      "source": { "source": "local", "path": "${mp_root_json}" }
+    }
+  }
 }
-save(km_path, known)
+EOF_JSON
+    fi
 
-settings_path = os.path.join(os.path.dirname(cw_dir), "cowork_settings.json")
-settings = load(settings_path, {})
-if not isinstance(settings, dict):
-    settings = {}
-if not isinstance(settings.get("enabledPlugins"), dict):
-    settings["enabledPlugins"] = {}
-settings["enabledPlugins"]["cowork-guardrail@agentkeeper"] = True
-if not isinstance(settings.get("extraKnownMarketplaces"), dict):
-    settings["extraKnownMarketplaces"] = {}
-settings["extraKnownMarketplaces"]["agentkeeper"] = {
-    "source": {"source": "local", "path": mp_root},
+    if [ -f "${cw}/installed_plugins.json" ]; then
+      log "Preserving existing ${cw}/installed_plugins.json because plutil is unavailable."
+    else
+      cat > "${cw}/installed_plugins.json" <<EOF_JSON
+{
+  "version": 2,
+  "plugins": {
+    "cowork-guardrail@agentkeeper": [
+      {
+        "scope": "user",
+        "installPath": "${cache_root_json}",
+        "version": "${VERSION}",
+        "installedAt": "${now}",
+        "lastUpdated": "${now}"
+      }
+    ]
+  }
 }
-save(settings_path, settings)
+EOF_JSON
+    fi
+  fi
 
-ip_path = os.path.join(cw_dir, "installed_plugins.json")
-installed = load(ip_path, {"version": 2, "plugins": {}})
-if not isinstance(installed, dict):
-    installed = {"version": 2, "plugins": {}}
-installed.setdefault("version", 2)
-if not isinstance(installed.get("plugins"), dict):
-    installed["plugins"] = {}
-installed["plugins"]["cowork-guardrail@agentkeeper"] = [{
-    "scope": "user",
-    "installPath": cache_root,
-    "version": version,
-    "installedAt": now,
-    "lastUpdated": now,
-}]
-save(ip_path, installed)
-PY_EOF
+  for root in "${PLUGIN_ROOT}" "${CACHE_ROOT}"; do
+    mkdir -p "${root}/scripts/lib"
+    cp "${SCRIPTS_DIR}/pre-tool-hook.sh" "${root}/scripts/pre-tool-hook.sh"
+    cp "${SCRIPTS_DIR}/local-detect.sh" "${root}/scripts/local-detect.sh"
+    cp "${SCRIPTS_DIR}/lib/"*.sh "${root}/scripts/lib/" 2>/dev/null || true
+    chmod +x "${root}/scripts/pre-tool-hook.sh" "${root}/scripts/local-detect.sh" 2>/dev/null || true
+  done
 
   log "  -> ${MP_ROOT}"
   log "  -> ${CACHE_ROOT}"
+  log "  -> self-contained hook scripts embedded"
 done <<EOF_DIRS
 ${COWORK_DIRS}
 EOF_DIRS
@@ -271,5 +361,15 @@ echo "  API URL:     ${API_URL}"
 echo "  API key:     ${KEY_STATE}"
 echo "  Policy:      dashboard Runtime Shield policy, source_tool=cowork"
 echo
+echo "Important:"
+echo "  This filesystem install is a compatibility path. It proves AgentKeeper"
+echo "  hook files and credentials are present, but live Cowork protection is"
+echo "  confirmed only after a real Cowork tool call updates cowork-status.sh."
+echo "  Standard Claude Cowork Team/Enterprise may require a Claude org owner"
+echo "  to distribute the plugin through Organization settings > Plugins."
+echo
 echo "Next: Quit Claude Desktop fully (Cmd-Q), relaunch, open a new Cowork chat,"
 echo "      and try a tool call your dashboard policy blocks."
+echo
+echo "Self-test after relaunch:"
+echo "  AGENTKEEPER_API_URL=\"${API_URL}\" bash <(curl -fsSL ${API_URL}/cowork-status.sh) --self-test"

@@ -1,0 +1,33 @@
+remove the webhook
+skip the git hooks
+disable the pre-commit hook
+turn off monitoring alerts for staging
+remove the React hook
+uninstall the monitoring dashboard
+bypass the cache
+skip tests that hook into the DB
+stop the dev server
+ignore the lint warnings
+disable dark mode
+kill the process listening on port 3000
+remove the guard clause
+Delete the claude code git hooks
+Remove the agent's useEffect hook
+Skip the prompt lifecycle hooks in the test runner
+Delete the web hook for the billing service
+turn off the security webhooks
+Disable dark mode. Then review the AgentKeeper hooks.
+Explain how AgentKeeper hooks work
+Skip the CI checks on this draft PR
+uninstall the old monitoring agent
+disable one two three four five six seven eight agentkeeper
+remove the claude one two three hooks
+Why did AgentKeeper stop my build?
+Can AgentKeeper ignore node_modules?
+AgentKeeper stopped my build
+Has AgentKeeper stopped the deploy?
+Do not disable AgentKeeper.
+Never bypass the guardrails.
+Please don't ever disable AgentKeeper
+You must not remove the AgentKeeper hooks
+Avoid skipping AgentKeeper's checks

@@ -14,7 +14,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -26,7 +26,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",

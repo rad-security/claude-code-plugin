@@ -17,3 +17,9 @@ rm -rf dist/
 chmod +x deploy.sh
 cat /etc/os-release
 dig google.com
+host example.com
+node scripts/dev.js --host localhost
+kubectl exec pod -- psql -c 'select code, hostname from nodes'
+curl --request POST https://api.example.com/hosts
+splunk search 'index=prod host=web01 | stats count'
+curl -s https://splunk.example.com/services/search/jobs -d search='index=main | table _time,host' -d output_mode=json

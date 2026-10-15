@@ -16,10 +16,11 @@ fail() { FAIL=$((FAIL + 1)); printf "  FAIL  %s\n" "$1"; }
 TMPDIR_ROOT=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 
+export HOME="${TMPDIR_ROOT}/home"
 export CLAUDE_PLUGIN_DATA="${TMPDIR_ROOT}/plugin-data"
 export CLAUDE_PLUGIN_OPTION_API_KEY=""
 export AGENTKEEPER_API_KEY=""
-mkdir -p "$CLAUDE_PLUGIN_DATA"
+mkdir -p "$HOME" "$CLAUDE_PLUGIN_DATA"
 printf '{"mode":"block"}\n' > "${CLAUDE_PLUGIN_DATA}/config.json"
 
 run_adapter() {

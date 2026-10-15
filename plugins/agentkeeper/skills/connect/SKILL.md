@@ -8,9 +8,9 @@ description: Connect AgentKeeper to this workstation. Supports interactive devic
 You are helping the user connect the AgentKeeper plugin to their www.agentkeeper.dev account. There are two paths:
 
 - **Interactive (default)**: device-code browser flow. Open a URL, user approves in browser, we receive the key and install hooks.
-- **Headless** (`--api-key <key>`): user supplies an existing API key inline. Validate it server-side, store, install hooks. No browser, no prompts. Required for CI, fleet provisioning (Kanji / Ontra), and SSO-managed laptops where the browser flow is blocked.
+- **Headless** (`--api-key <key>`): user supplies an existing API key inline. Validate it server-side, store, install hooks. No browser, no prompts. Required for CI, MDM fleet provisioning, and SSO-managed laptops where the browser flow is blocked.
 
-After either path succeeds, HTTP hooks are installed into `~/.claude/settings.json` so Claude Code natively sends hook events to the AgentKeeper API.
+After either path succeeds, command preflight hooks are installed into `~/.claude/settings.json` so Claude Code can inspect local helper scripts before forwarding hook events to the AgentKeeper API.
 
 ## Step 0: Parse Arguments
 
@@ -69,7 +69,7 @@ and stop.
    unset API_KEY_FROM_FLAG
    ```
 
-4. Run Step 5 (install HTTP hooks, generates machine_id) and Step 6 (register workstation + skill inventory).
+4. Run Step 5 (install command preflight hooks, generates machine_id) and Step 6 (register workstation + skill inventory).
 
 5. Display (never include the API key value):
    ```
@@ -105,7 +105,7 @@ curl -s --max-time 5 "https://www.agentkeeper.dev/api/v1/claude-code/health" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
-If valid, check if HTTP hooks are already installed:
+If valid, check if AgentKeeper hooks are already installed:
 ```bash
 grep -q 'agentkeeper\.dev' "$HOME/.claude/settings.json" 2>/dev/null && echo "HOOKS_EXIST" || echo "NO_HOOKS"
 ```
@@ -231,15 +231,17 @@ exit 1
 
 **CRITICAL: Never echo or log the raw API key in any output shown to the user. The script above stores it directly to file without displaying it.**
 
-## Step 5: Install HTTP Hooks (and persist a stable machine_id)
+## Step 5: Install Hooks (and persist a stable machine_id)
 
-After the key is stored, install HTTP hooks into `~/.claude/settings.json` and ensure a stable `machine_id` exists alongside the API key. The machine_id is a client-generated UUID that lets the AgentKeeper server recognize the same laptop across hostname changes, OS renames, and hook payloads that report different `hostname` values (common on Windows / MINGW64). Without it, two checkins from the same machine with different hostnames produce two duplicate workstation rows.
+After the key is stored, install runtime command hooks plus a command-based `SessionStart` inventory hook into `~/.claude/settings.json`, and ensure a stable `machine_id` exists alongside the API key. The machine_id must come from the platform or an explicit managed override: macOS `IOPlatformUUID`, Windows Entra DeviceId / hashed MachineGuid / SMBIOS UUID, or Linux `/etc/machine-id` / DMI UUID. It must not be a random AgentKeeper-generated UUID; random IDs make reinstall, Jamf, Intune, and Codex/Claude plugin installs disagree about the same workstation. Without a stable platform ID, two checkins from the same machine with different hostnames produce duplicate workstation rows.
+
+`UserPromptSubmit`, `PreToolUse`, and `SessionStart` should be command hooks for managed installs. HTTP-only `PreToolUse` can evaluate the visible command, but it cannot inspect the contents of a local helper script before execution. The command preflight hook inspects local scripts, forwards an enriched event to AgentKeeper, sends hostname and machine_id explicitly, and then exits fail-open except for critical local preflight detections.
 
 This is CRITICAL — without the hooks AND the machine_id, AgentKeeper cannot reliably track a workstation. Run this single command:
 
 ```bash
 python3 << 'PYEOF'
-import json, os, sys, uuid
+import glob, json, os, platform, re, shlex, shutil, stat, subprocess, sys, time
 
 data_dir = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.expanduser("~/.agentkeeper-plugin")
 api_key_path = os.path.join(data_dir, "api_key")
@@ -256,57 +258,251 @@ if not api_key:
     print("ERROR_EMPTY_KEY")
     sys.exit(1)
 
-# Generate + persist machine_id on first run. Keep it stable forever after.
-if os.path.isfile(machine_id_path):
-    with open(machine_id_path) as f:
-        machine_id = f.read().strip()
-else:
-    machine_id = str(uuid.uuid4())
-    os.makedirs(data_dir, exist_ok=True)
-    with open(machine_id_path, "w") as f:
-        f.write(machine_id)
+def normalize_machine_id(value):
+    if not value:
+        return ""
+    return re.sub(r"\s+", "", str(value)).lower()
+
+def run_output(cmd):
     try:
-        os.chmod(machine_id_path, 0o600)
-    except OSError:
-        pass
-if not machine_id:
-    # Corrupt file — regenerate
-    machine_id = str(uuid.uuid4())
-    with open(machine_id_path, "w") as f:
-        f.write(machine_id)
+        return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True, timeout=5)
+    except Exception:
+        return ""
+
+def machine_id_paths():
+    paths = [
+        machine_id_path,
+        os.path.expanduser("~/.agentkeeper-plugin/machine_id"),
+        os.path.expanduser("~/.agentkeeper/machine_id"),
+    ]
+    seen = set()
+    for path in paths:
+        if path and path not in seen:
+            seen.add(path)
+            yield path
+
+def write_machine_id(machine_id):
+    machine_id = normalize_machine_id(machine_id)
+    if not machine_id:
+        return ""
+    for path in machine_id_paths():
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(machine_id)
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    return machine_id
+
+def read_cached_machine_id():
+    for path in machine_id_paths():
+        try:
+            with open(path) as f:
+                machine_id = normalize_machine_id(f.read())
+        except OSError:
+            continue
+        if machine_id:
+            return write_machine_id(machine_id)
+    return ""
+
+def windows_machine_id():
+    ps = "powershell.exe" if os.name != "nt" else "powershell"
+    entra = run_output([
+        ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+        r'try { $s = dsregcmd /status 2>$null; foreach ($line in $s) { if ($line -match "^\s*DeviceId\s*:\s*([0-9a-fA-F-]{36})\s*$") { [Console]::Write("entra:" + $Matches[1].ToLowerInvariant()); exit 0 } } } catch {}',
+    ])
+    if entra:
+        return normalize_machine_id(entra)
+    machine_guid = run_output([
+        ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+        r'try { $v = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name MachineGuid).MachineGuid; if ($v) { $bytes = [Text.Encoding]::UTF8.GetBytes($v.ToLowerInvariant()); $hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes); $hex = -join ($hash | ForEach-Object { $_.ToString("x2") }); [Console]::Write("winmg:" + $hex.Substring(0, 32)); exit 0 } } catch {}',
+    ])
+    if machine_guid:
+        return normalize_machine_id(machine_guid)
+    smbios = run_output([
+        ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+        r'try { $v = (Get-CimInstance Win32_ComputerSystemProduct).UUID; if ($v -and $v -notmatch "^0{8}-0{4}-0{4}-0{4}-0{12}$" -and $v -notmatch "^f{8}-f{4}-f{4}-f{4}-f{12}$") { [Console]::Write("smbios:" + $v.ToLowerInvariant()); exit 0 } } catch {}',
+    ])
+    return normalize_machine_id(smbios)
+
+def detect_platform_machine_id():
+    override = normalize_machine_id(os.environ.get("AGENTKEEPER_MACHINE_ID"))
+    if override:
+        return override
+
+    system = platform.system().lower()
+    uname = run_output(["uname", "-s"]).strip().lower()
+    if system == "darwin" or uname == "darwin":
+        output = run_output(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"])
+        match = re.search(r'"IOPlatformUUID"\s*=\s*"([^"]+)"', output)
+        return normalize_machine_id(match.group(1) if match else "")
+    if system == "windows" or uname.startswith(("mingw", "msys", "cygwin")):
+        return windows_machine_id()
+    for path in ("/etc/machine-id", "/sys/class/dmi/id/product_uuid"):
+        try:
+            with open(path) as f:
+                machine_id = normalize_machine_id(f.read())
+        except OSError:
+            continue
+        if machine_id:
+            return machine_id
+    return ""
+
+# Platform identity wins over stale AgentKeeper cache files. Cache files are
+# repaired from the platform value and are only used as a last-resort fallback.
+machine_id = detect_platform_machine_id() or read_cached_machine_id()
+if machine_id:
+    machine_id = write_machine_id(machine_id)
+else:
+    print("WARN_NO_MACHINE_ID")
 
 os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+settings_exists = os.path.exists(settings_path)
+settings_mode = 0o600
 try:
+    if settings_exists:
+        settings_mode = stat.S_IMODE(os.stat(settings_path).st_mode)
     with open(settings_path) as f:
         settings = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
+except FileNotFoundError:
     settings = {}
+except json.JSONDecodeError:
+    print("ERROR_INVALID_SETTINGS_JSON")
+    sys.exit(1)
 
-hooks = settings.setdefault("hooks", {})
+if not isinstance(settings, dict):
+    print("ERROR_INVALID_SETTINGS_SHAPE")
+    sys.exit(1)
 
-# Every hook sends the machine_id as an HTTP header so the server can
-# resolve the host by stable ID instead of fuzzy hostname matching.
-hook_headers = {"Authorization": "Bearer " + api_key, "X-Machine-Id": machine_id}
+hooks = settings.get("hooks")
+if hooks is None:
+    hooks = {}
+    settings["hooks"] = hooks
+elif not isinstance(hooks, dict):
+    print("ERROR_INVALID_HOOKS_SHAPE")
+    sys.exit(1)
+
+# HTTP fallback hooks send machine_id as a header. Command hooks resolve and
+# send the stable machine_id from the local hook scripts.
+hook_headers = {"Authorization": "Bearer " + api_key}
+if machine_id:
+    hook_headers["X-Machine-Id"] = machine_id
+
+plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
+if not plugin_root:
+    matches = sorted(
+        glob.glob(os.path.expanduser("~/.claude/plugins/cache/agentkeeper/agentkeeper/*/scripts/session-start.sh")),
+        key=os.path.getmtime,
+        reverse=True,
+    )
+    if matches:
+        plugin_root = os.path.dirname(os.path.dirname(matches[0]))
+
+session_start_hook = None
+if plugin_root:
+    session_script = os.path.join(plugin_root, "scripts", "session-start.sh")
+    if os.path.isfile(session_script):
+        session_start_hook = {
+            "matcher": "*",
+            "hooks": [{
+                "type": "command",
+                "command": "bash " + shlex.quote(session_script),
+                "timeout": 15,
+            }],
+        }
 
 agentkeeper_hooks = {
     "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://www.agentkeeper.dev/api/v1/claude-code/evaluate", "headers": hook_headers}]}],
-    "PreToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://www.agentkeeper.dev/api/v1/claude-code/evaluate", "headers": hook_headers}]}],
-    "PostToolUse": [{"matcher": "Bash|Edit|Write|Read|Glob|Grep|WebFetch|WebSearch", "hooks": [{"type": "http", "url": "https://www.agentkeeper.dev/api/v1/claude-code/audit", "headers": hook_headers}]}],
-    "SessionStart": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://www.agentkeeper.dev/api/v1/claude-code/checkin", "headers": hook_headers}]}],
+    "PreToolUse": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://www.agentkeeper.dev/api/v1/claude-code/evaluate", "headers": hook_headers}]}],
+    "PostToolUse": [{"matcher": "*", "hooks": [{"type": "http", "url": "https://www.agentkeeper.dev/api/v1/claude-code/audit", "headers": hook_headers}]}],
 }
+if session_start_hook:
+    agentkeeper_hooks["SessionStart"] = [session_start_hook]
+else:
+    # Fallback registration only. Inventory is unavailable until the plugin
+    # command script can be resolved.
+    agentkeeper_hooks["SessionStart"] = [{"matcher": "*", "hooks": [{"type": "http", "url": "https://www.agentkeeper.dev/api/v1/claude-code/checkin", "headers": hook_headers}]}]
+
+pre_tool_script = os.path.join(plugin_root, "scripts", "pre-tool-hook.sh") if plugin_root else ""
+post_tool_script = os.path.join(plugin_root, "scripts", "post-tool-hook.sh") if plugin_root else ""
+if plugin_root and os.path.isfile(pre_tool_script) and os.path.isfile(post_tool_script):
+    api_url = os.environ.get("AGENTKEEPER_API_URL", "https://www.agentkeeper.dev").rstrip("/")
+    prefix = (
+        "AGENTKEEPER_SKIP_CONFLICT_CHECK=1 "
+        "AGENTKEEPER_API_TOOL=claude-code "
+        f"AGENTKEEPER_API_URL={shlex.quote(api_url)} "
+        f"AGENTKEEPER_SCRIPTS_DIR={shlex.quote(plugin_root)} "
+    )
+    agentkeeper_hooks["UserPromptSubmit"] = [{"matcher": "*", "hooks": [{"type": "command", "command": prefix + "bash " + shlex.quote(pre_tool_script), "timeout": 10}]}]
+    agentkeeper_hooks["PreToolUse"] = [{"matcher": "*", "hooks": [{"type": "command", "command": prefix + "bash " + shlex.quote(pre_tool_script), "timeout": 10}]}]
+    agentkeeper_hooks["PostToolUse"] = [{"matcher": "*", "hooks": [{"type": "command", "command": prefix + "bash " + shlex.quote(post_tool_script), "timeout": 10}]}]
+
+def is_agentkeeper_hook(hook):
+    if not isinstance(hook, dict):
+        return False
+    url = str(hook.get("url") or "")
+    command = str(hook.get("command") or "")
+    return (
+        "agentkeeper.dev" in url
+        or "/api/v1/claude-code/" in url
+        or "AGENTKEEPER_API_TOOL=claude-code" in command
+        or "AGENTKEEPER_SCRIPTS_DIR=" in command
+        or "/.agentkeeper/" in command
+    )
+
+def prune_agentkeeper_hooks(group):
+    if not isinstance(group, dict):
+        return group
+    raw_hooks = group.get("hooks", [])
+    if not isinstance(raw_hooks, list):
+        return group
+    kept_hooks = [hook for hook in raw_hooks if not is_agentkeeper_hook(hook)]
+    if len(kept_hooks) == len(raw_hooks):
+        return group
+    if not kept_hooks:
+        return None
+    clone = dict(group)
+    clone["hooks"] = kept_hooks
+    return clone
 
 for event_name, new_entries in agentkeeper_hooks.items():
     existing = hooks.get(event_name, [])
-    cleaned = [g for g in existing if not any("www.agentkeeper.dev" in (h.get("url") or "") for h in g.get("hooks", []))]
+    if not isinstance(existing, list):
+        print("ERROR_INVALID_HOOK_EVENT_SHAPE:" + event_name)
+        sys.exit(1)
+    cleaned = []
+    for group in existing:
+        pruned = prune_agentkeeper_hooks(group)
+        if pruned is not None:
+            cleaned.append(pruned)
     cleaned.extend(new_entries)
     hooks[event_name] = cleaned
 
-settings["hooks"] = hooks
-with open(settings_path, "w") as f:
-    json.dump(settings, f, indent=2)
-    f.write("\n")
+if settings_exists:
+    backup_path = settings_path + ".agentkeeper-backup-" + time.strftime("%Y%m%d%H%M%S")
+    shutil.copy2(settings_path, backup_path)
 
+tmp_path = settings_path + ".agentkeeper-tmp-" + str(os.getpid())
+try:
+    with open(tmp_path, "w") as f:
+        json.dump(settings, f, indent=2)
+        f.write("\n")
+    os.chmod(tmp_path, settings_mode)
+    os.replace(tmp_path, settings_path)
+finally:
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except OSError:
+        pass
+
+print("HOOKS_SAFE_MERGED")
 print("HOOKS_WRITTEN")
+if session_start_hook:
+    print("INVENTORY_LITE_SESSIONSTART_WRITTEN")
+else:
+    print("WARN_SESSIONSTART_HTTP_FALLBACK")
 
 for repo_file in [".claude/settings.json", ".claude/settings.local.json"]:
     if os.path.isfile(repo_file):
@@ -320,7 +516,7 @@ for repo_file in [".claude/settings.json", ".claude/settings.local.json"]:
 PYEOF
 ```
 
-If the output contains `ERROR_NO_KEY` or `ERROR_EMPTY_KEY`, display an error and ask the user to reconnect.
+If the output contains `ERROR_NO_KEY` or `ERROR_EMPTY_KEY`, display an error and ask the user to reconnect. If the output contains `ERROR_INVALID_SETTINGS_JSON`, `ERROR_INVALID_SETTINGS_SHAPE`, `ERROR_INVALID_HOOKS_SHAPE`, or `ERROR_INVALID_HOOK_EVENT_SHAPE`, tell the user AgentKeeper left `~/.claude/settings.json` untouched and they must repair the existing Claude Code settings JSON before reconnecting.
 
 **CRITICAL: Never echo or log the contents of the `machine_id` file in output shown to the user. It is a stable per-machine identifier and should not be pasted into chat or logs.**
 
@@ -334,8 +530,27 @@ In addition to the basic workstation metadata, this call enumerates the skills a
 AGENTKEEPER_DIR="$HOME/.agentkeeper-plugin"
 [ -n "$CLAUDE_PLUGIN_DATA" ] && AGENTKEEPER_DIR="$CLAUDE_PLUGIN_DATA"
 API_KEY=$(cat "$AGENTKEEPER_DIR/api_key" 2>/dev/null)
-export MACHINE_ID=$(cat "$AGENTKEEPER_DIR/machine_id" 2>/dev/null)
-export HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || echo "unknown")
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
+if [ -z "$PLUGIN_ROOT" ]; then
+  SESSION_SCRIPT=$(ls -t "$HOME"/.claude/plugins/cache/agentkeeper/agentkeeper/*/scripts/session-start.sh 2>/dev/null | head -1)
+  [ -n "$SESSION_SCRIPT" ] && PLUGIN_ROOT=$(cd "$(dirname "$SESSION_SCRIPT")/.." && pwd)
+fi
+if [ -n "$PLUGIN_ROOT" ]; then
+  source "$PLUGIN_ROOT/scripts/lib/machine-id.sh" 2>/dev/null || source "$PLUGIN_ROOT/lib/machine-id.sh" 2>/dev/null || true
+fi
+
+if command -v get_machine_id >/dev/null 2>&1; then
+  MACHINE_ID=$(get_machine_id)
+else
+  MACHINE_ID=$(cat "$AGENTKEEPER_DIR/machine_id" 2>/dev/null)
+fi
+if command -v get_agentkeeper_hostname >/dev/null 2>&1; then
+  HOSTNAME_VAL=$(get_agentkeeper_hostname)
+else
+  HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
+fi
+export MACHINE_ID HOSTNAME_VAL
 export OS_VAL=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "unknown")
 export CC_VERSION=$(claude --version 2>/dev/null | head -1 | awk '{print $1}' || echo "unknown")
 CWD_VAL=$(pwd)
@@ -464,10 +679,13 @@ print(json.dumps(payload))
 PYEOF
 )
 
+HEADERS=(-H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json")
+if [ -n "$MACHINE_ID" ]; then
+  HEADERS+=(-H "X-Machine-Id: $MACHINE_ID")
+fi
+
 curl -s --max-time 10 -X POST "https://www.agentkeeper.dev/api/v1/claude-code/checkin" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "X-Machine-Id: $MACHINE_ID" \
-  -H "Content-Type: application/json" \
+  "${HEADERS[@]}" \
   -d "$BODY" 2>/dev/null
 echo ""
 echo "CHECKIN_DONE"
@@ -483,7 +701,7 @@ Organization: [org_name]
 Plan: [plan]
 Workstation: [hostname] registered
 
-HTTP hooks installed to ~/.claude/settings.json
+Command preflight hooks installed to ~/.claude/settings.json
 Restart Claude Code to activate hooks.
 Dashboard: https://www.agentkeeper.dev/dashboard
 ```
@@ -529,6 +747,7 @@ Having trouble? You can also paste an API key manually from:
    export OTEL_EXPORTER_OTLP_ENDPOINT=https://www.agentkeeper.dev/api/v1/otlp
    export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer {API_KEY}"
    export OTEL_LOG_TOOL_DETAILS=1
+   export OTEL_LOG_USER_PROMPTS=0
    export OTEL_RESOURCE_ATTRIBUTES="host.name=$(scutil --get LocalHostName 2>/dev/null || hostname -s | tr ' ' '_')"
    # <<< agentkeeper-telemetry <<<
    ```
@@ -543,6 +762,7 @@ Having trouble? You can also paste an API key manually from:
    set -gx OTEL_EXPORTER_OTLP_ENDPOINT https://www.agentkeeper.dev/api/v1/otlp
    set -gx OTEL_EXPORTER_OTLP_HEADERS "Authorization=Bearer {API_KEY}"
    set -gx OTEL_LOG_TOOL_DETAILS 1
+   set -gx OTEL_LOG_USER_PROMPTS 0
    set -gx OTEL_RESOURCE_ATTRIBUTES "host.name=$(scutil --get LocalHostName 2>/dev/null || hostname -s | tr ' ' '_')"
    # <<< agentkeeper-telemetry <<<
    ```
@@ -556,7 +776,7 @@ Having trouble? You can also paste an API key manually from:
    RC_FILE="[detected rc file path]"
    API_KEY="[api key from step 3]"
 
-   BLOCK="# >>> agentkeeper-telemetry >>>\nexport CLAUDE_CODE_ENABLE_TELEMETRY=1\nexport OTEL_LOGS_EXPORTER=otlp\nexport OTEL_METRICS_EXPORTER=otlp\nexport OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf\nexport OTEL_EXPORTER_OTLP_ENDPOINT=https://www.agentkeeper.dev/api/v1/otlp\nexport OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer $API_KEY\"\nexport OTEL_LOG_TOOL_DETAILS=1\nexport OTEL_RESOURCE_ATTRIBUTES=\"host.name=\$(scutil --get LocalHostName 2>/dev/null || hostname -s | tr ' ' '_')\"\n# <<< agentkeeper-telemetry <<<"
+   BLOCK="# >>> agentkeeper-telemetry >>>\nexport CLAUDE_CODE_ENABLE_TELEMETRY=1\nexport OTEL_LOGS_EXPORTER=otlp\nexport OTEL_METRICS_EXPORTER=otlp\nexport OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf\nexport OTEL_EXPORTER_OTLP_ENDPOINT=https://www.agentkeeper.dev/api/v1/otlp\nexport OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer $API_KEY\"\nexport OTEL_LOG_TOOL_DETAILS=1\nexport OTEL_LOG_USER_PROMPTS=0\nexport OTEL_RESOURCE_ATTRIBUTES=\"host.name=\$(scutil --get LocalHostName 2>/dev/null || hostname -s | tr ' ' '_')\"\n# <<< agentkeeper-telemetry <<<"
 
    if grep -q '# >>> agentkeeper-telemetry >>>' "$RC_FILE" 2>/dev/null; then
      # Replace existing block

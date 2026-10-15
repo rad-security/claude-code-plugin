@@ -16,6 +16,8 @@ source "${PLUGIN_ROOT}/scripts/lib/conflict-check.sh" 2>/dev/null || \
   source "${PLUGIN_ROOT}/lib/conflict-check.sh" 2>/dev/null || true
 source "${PLUGIN_ROOT}/scripts/lib/machine-id.sh" 2>/dev/null || \
   source "${PLUGIN_ROOT}/lib/machine-id.sh" 2>/dev/null || true
+source "${PLUGIN_ROOT}/scripts/lib/runtime-identity.sh" 2>/dev/null || \
+  source "${PLUGIN_ROOT}/lib/runtime-identity.sh" 2>/dev/null || true
 source "${PLUGIN_ROOT}/scripts/lib/device-key.sh" 2>/dev/null || \
   source "${PLUGIN_ROOT}/lib/device-key.sh" 2>/dev/null || true
 
@@ -24,6 +26,7 @@ trap 'emit_allow; exit 0' ERR
 
 # Read all of stdin
 INPUT=$(cat 2>/dev/null) || true
+agentkeeper_load_runtime_identity 2>/dev/null || true
 
 # If stdin was empty, nothing to log
 if [ -z "$INPUT" ]; then
@@ -42,32 +45,67 @@ API_KEY=$(resolve_api_key) || true
 
 if [ -n "$API_KEY" ]; then
   # ---- API mode: forward to audit endpoint ----
-  HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
+  INPUT="$(agentkeeper_enrich_json_payload "$INPUT" 2>/dev/null || printf '%s' "$INPUT")"
+  HOSTNAME_VAL=$(get_agentkeeper_hostname 2>/dev/null || scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'unknown')
   MACHINE_ID=$(get_machine_id)
+  RUNTIME_USER_HINT=$(agentkeeper_runtime_user_hint 2>/dev/null || true)
+  RUNTIME_USER_EMAIL=$(agentkeeper_runtime_user_email 2>/dev/null || true)
+  INSTALL_METHOD="${AGENTKEEPER_INSTALL_METHOD:-$(read_agentkeeper_install_context_value install_method 2>/dev/null || true)}"
+  MDM_PROVIDER="${AGENTKEEPER_MDM_PROVIDER:-$(read_agentkeeper_install_context_value mdm_provider 2>/dev/null || true)}"
+  MDM_COMPUTER_NAME="${AGENTKEEPER_MDM_COMPUTER_NAME:-$(read_agentkeeper_install_context_value mdm_computer_name 2>/dev/null || true)}"
+  MDM_DEPLOYMENT_ID="${AGENTKEEPER_MDM_DEPLOYMENT_ID:-$(read_agentkeeper_install_context_value mdm_deployment_id 2>/dev/null || true)}"
+  API_BASE_URL="${AGENTKEEPER_API_URL:-https://www.agentkeeper.dev}"
+  API_BASE_URL="${API_BASE_URL%/}"
   API_TOOL="${AGENTKEEPER_API_TOOL:-claude-code}"
   if [ "$API_TOOL" = "claude-code" ]; then
-    AUDIT_URL="https://www.agentkeeper.dev/api/v1/claude-code/audit"
+    AUDIT_URL="${API_BASE_URL}/api/v1/claude-code/audit"
   else
-    AUDIT_URL="https://www.agentkeeper.dev/api/v1/audit?tool=${API_TOOL}"
+    AUDIT_URL="${API_BASE_URL}/api/v1/audit?tool=${API_TOOL}"
   fi
   # Additive: sign the request body when a device keypair exists.
   # Plan 1 dark-launch — server records but does not yet enforce.
-  SIGNED_HEADERS=()
+  SIGNED_TS=""
+  SIGNED_SIG=""
   if agentkeeper_has_keypair 2>/dev/null; then
     TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     SIG=$(printf '%s%s' "$TS" "$INPUT" | agentkeeper_sign 2>/dev/null) || SIG=""
     if [ -n "$SIG" ]; then
-      SIGNED_HEADERS+=(-H "X-Timestamp: $TS" -H "X-Device-Signature: $SIG" -H "X-Console-User: ${USER:-unknown}")
+      SIGNED_TS="$TS"
+      SIGNED_SIG="$SIG"
     fi
   fi
-  curl -s --max-time 4 \
-    -X POST "$AUDIT_URL" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${API_KEY}" \
-    -H "X-Hostname: ${HOSTNAME_VAL}" \
-    -H "X-Machine-Id: ${MACHINE_ID}" \
-    "${SIGNED_HEADERS[@]}" \
-    -d "$INPUT" >/dev/null 2>&1 || true
+  if [ -n "$SIGNED_SIG" ]; then
+    curl -sS --max-time 4 \
+      -X POST "$AUDIT_URL" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer ${API_KEY}" \
+      -H "X-Hostname: ${HOSTNAME_VAL}" \
+      -H "X-Machine-Id: ${MACHINE_ID}" \
+      -H "X-AgentKeeper-Install-Method: ${INSTALL_METHOD}" \
+      -H "X-AgentKeeper-MDM-Provider: ${MDM_PROVIDER}" \
+      -H "X-AgentKeeper-MDM-Computer-Name: ${MDM_COMPUTER_NAME}" \
+      -H "X-AgentKeeper-MDM-Deployment-Id: ${MDM_DEPLOYMENT_ID}" \
+      -H "X-Timestamp: ${SIGNED_TS}" \
+      -H "X-Device-Signature: ${SIGNED_SIG}" \
+      -H "X-User-Hint: ${RUNTIME_USER_HINT}" \
+      -H "X-User-Email: ${RUNTIME_USER_EMAIL}" \
+      -H "X-Console-User: ${USER:-unknown}" \
+      -d "$INPUT" >/dev/null 2>&1 || true
+  else
+    curl -sS --max-time 4 \
+      -X POST "$AUDIT_URL" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer ${API_KEY}" \
+      -H "X-Hostname: ${HOSTNAME_VAL}" \
+      -H "X-Machine-Id: ${MACHINE_ID}" \
+      -H "X-AgentKeeper-Install-Method: ${INSTALL_METHOD}" \
+      -H "X-AgentKeeper-MDM-Provider: ${MDM_PROVIDER}" \
+      -H "X-AgentKeeper-MDM-Computer-Name: ${MDM_COMPUTER_NAME}" \
+      -H "X-AgentKeeper-MDM-Deployment-Id: ${MDM_DEPLOYMENT_ID}" \
+      -H "X-User-Hint: ${RUNTIME_USER_HINT}" \
+      -H "X-User-Email: ${RUNTIME_USER_EMAIL}" \
+      -d "$INPUT" >/dev/null 2>&1 || true
+  fi
 
   # Always allow — audit is fire-and-forget
   emit_allow

@@ -58,17 +58,34 @@ else
   pass
 fi
 
-step "signature verifies with openssl against the derived public key"
+step "signature verifies against the derived public key"
 pub_der="$(mktemp)"; trap 'rm -f "$pub_der"' RETURN
 printf '%s' "$pub" | base64 -d > "$pub_der"
 sig_file="$(mktemp)"; trap 'rm -f "$sig_file" "$pub_der"' RETURN
-printf '%s' "$sig" | base64 -d > "$sig_file"
 payload_file="$(mktemp)"; trap 'rm -f "$sig_file" "$pub_der" "$payload_file"' RETURN
 printf '%s%s' "$ts" "$body" > "$payload_file"
-if openssl pkeyutl -verify -pubin -inkey "$pub_der" -keyform DER -rawin -sigfile "$sig_file" -in "$payload_file" >/dev/null 2>&1; then
-  pass
+backend="$(agentkeeper_crypto_backend)"
+if [ "$backend" = "ssh-keygen" ]; then
+  # SSHSIG blob: re-armor and verify with ssh-keygen against an allowed-signers
+  # entry derived from the stored key (same raw key as the SPKI we emitted).
+  { printf -- '-----BEGIN SSH SIGNATURE-----\n%s\n-----END SSH SIGNATURE-----\n' "$sig"; } > "$sig_file"
+  key_file="$(mktemp)"; signers_file="$(mktemp)"
+  agentkeeper_load_private_key > "$key_file"; chmod 0600 "$key_file"
+  printf 'agentkeeper %s\n' "$(ssh-keygen -y -f "$key_file")" > "$signers_file"
+  if ssh-keygen -Y verify -f "$signers_file" -I agentkeeper -n "$AGENTKEEPER_SIGN_NAMESPACE" -s "$sig_file" < "$payload_file" >/dev/null 2>&1; then
+    pass
+  else
+    bad "ssh-keygen -Y verify failed"
+  fi
+  rm -f "$key_file" "$signers_file"
 else
-  bad "openssl pkeyutl -verify failed"
+  printf '%s' "$sig" | base64 -d > "$sig_file"
+  ossl="$(resolve_agentkeeper_openssl)"
+  if [ -n "$ossl" ] && "$ossl" pkeyutl -verify -pubin -inkey "$pub_der" -keyform DER -rawin -sigfile "$sig_file" -in "$payload_file" >/dev/null 2>&1; then
+    pass
+  else
+    bad "openssl pkeyutl -verify failed"
+  fi
 fi
 
 step "agentkeeper_delete_keypair clears the key"

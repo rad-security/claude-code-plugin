@@ -22,6 +22,8 @@ PLUGIN_ROOT="$AGENTKEEPER_SCRIPTS_DIR"
 
 source "${PLUGIN_ROOT}/scripts/lib/json-helpers.sh" 2>/dev/null || \
   source "${PLUGIN_ROOT}/lib/json-helpers.sh" 2>/dev/null || true
+source "${PLUGIN_ROOT}/scripts/lib/key-resolver.sh" 2>/dev/null || \
+  source "${PLUGIN_ROOT}/lib/key-resolver.sh" 2>/dev/null || true
 source "${PLUGIN_ROOT}/scripts/lib/dedup.sh" 2>/dev/null || \
   source "${PLUGIN_ROOT}/lib/dedup.sh" 2>/dev/null || true
 source "${PLUGIN_ROOT}/scripts/lib/debug-log.sh" 2>/dev/null || \
@@ -85,7 +87,7 @@ normalize_input() {
   local raw="$1"
   if command -v python3 >/dev/null 2>&1; then
     printf '%s' "$raw" | python3 -c '
-import json, sys
+import json, os, subprocess, sys
 
 def as_dict(v):
     return v if isinstance(v, dict) else {}
@@ -109,6 +111,20 @@ def first_str(obj, keys):
         if isinstance(value, str) and value:
             return value
     return ""
+
+def git_remote(cwd):
+    if not cwd:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        return proc.stdout.strip()
+    except Exception:
+        return ""
 
 try:
     d = json.load(sys.stdin)
@@ -170,10 +186,23 @@ if tool_name == "Glob" and "pattern" not in args:
     if pattern:
         args["pattern"] = pattern
 
+raw_event = d.get("hook_event_name") or d.get("hookEventName") or d.get("event") or ""
+event_map = {
+    "BeforeTool": "PreToolUse",
+    "before_tool": "PreToolUse",
+    "pre_tool": "PreToolUse",
+    "AfterTool": "PostToolUse",
+    "after_tool": "PostToolUse",
+    "post_tool": "PostToolUse",
+    "BeforeAgent": "UserPromptSubmit",
+    "user_prompt_submit": "UserPromptSubmit",
+    "prompt": "UserPromptSubmit",
+}
+
 out = {
     "tool_name": tool_name,
     "tool_input": args,
-    "hook_event_name": d.get("hook_event_name") or d.get("hookEventName") or d.get("event") or "",
+    "hook_event_name": event_map.get(raw_event, raw_event),
 }
 for src, dst in [
     ("tool_call_id", "tool_use_id"),
@@ -185,6 +214,18 @@ for src, dst in [
 ]:
     if src in d and d[src] is not None:
         out[dst] = d[src]
+
+cwd = out.get("cwd") if isinstance(out.get("cwd"), str) and out.get("cwd") else os.getcwd()
+if cwd and not out.get("cwd"):
+    out["cwd"] = cwd
+remote = first_str(d, ["git_remote_url", "git_remote", "repository_remote", "repo_remote", "remote_url"])
+if remote:
+    out["git_remote_url"] = remote
+else:
+    remote = git_remote(cwd)
+    if remote:
+        out["git_remote_url"] = remote
+
 if "prompt" in out:
     out.setdefault("tool_input", {})["prompt"] = out["prompt"]
 for key in ["tool_output", "toolOutput", "tool_response", "toolResponse", "result", "output", "response"]:
@@ -352,6 +393,9 @@ case "$HOOK_EVENT" in
     ;;
   BeforeAgent|UserPromptSubmit|user_prompt_submit|prompt)
     RESPONSE=$(printf '%s' "$NORMALIZED" | "${PLUGIN_ROOT}/scripts/prompt-hook.sh" 2>/dev/null) || true
+    ;;
+  SessionStart|session_start)
+    RESPONSE=$(printf '%s' "$NORMALIZED" | "${PLUGIN_ROOT}/scripts/session-start.sh" 2>/dev/null) || true
     ;;
   PreInvocation|pre_invocation)
     # Capture the user prompt from the transcript (Antigravity omits it from the

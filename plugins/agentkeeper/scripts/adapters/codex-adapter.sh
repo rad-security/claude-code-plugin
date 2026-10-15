@@ -79,7 +79,7 @@ normalize_input() {
   local raw="$1"
   if command -v python3 >/dev/null 2>&1; then
     printf '%s' "$raw" | python3 -c '
-import json, re, sys
+import json, os, re, subprocess, sys
 
 def as_dict(v):
     return v if isinstance(v, dict) else {}
@@ -103,6 +103,20 @@ def first_str(obj, keys):
         if isinstance(value, str) and value:
             return value
     return ""
+
+def git_remote(cwd):
+    if not cwd:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        return proc.stdout.strip()
+    except Exception:
+        return ""
 
 def patch_path(text):
     if not isinstance(text, str):
@@ -175,6 +189,18 @@ for src, dst in [
 ]:
     if src in d and d[src] is not None:
         out[dst] = d[src]
+
+cwd = out.get("cwd") if isinstance(out.get("cwd"), str) and out.get("cwd") else os.getcwd()
+if cwd and not out.get("cwd"):
+    out["cwd"] = cwd
+remote = first_str(d, ["git_remote_url", "git_remote", "repository_remote", "repo_remote", "remote_url"])
+if remote:
+    out["git_remote_url"] = remote
+else:
+    remote = git_remote(cwd)
+    if remote:
+        out["git_remote_url"] = remote
+
 if "prompt" in out:
     out.setdefault("tool_input", {})["prompt"] = out["prompt"]
 if "tool_output" in d:

@@ -11,6 +11,7 @@ SCRIPTS_DIR="$(cd "${ADAPTER_DIR}/.." && pwd)"
 
 # Export for shared scripts
 export AGENTKEEPER_IDE="cursor"
+export AGENTKEEPER_API_TOOL="cursor"
 export AGENTKEEPER_SKIP_CONFLICT_CHECK="1"
 export AGENTKEEPER_SCRIPTS_DIR="$SCRIPTS_DIR"
 export CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA:-$HOME/.agentkeeper}"
@@ -64,6 +65,72 @@ _now_ms() {
   fi
 }
 START_MS=$(_now_ms)
+
+_enrich_repo_context() {
+  local normalized="$1"
+  local raw_input="$2"
+  if command -v python3 &>/dev/null; then
+    AGENTKEEPER_RAW_INPUT="$raw_input" python3 -c '
+import json, os, subprocess, sys
+
+def first_str(obj, keys):
+    if not isinstance(obj, dict):
+        return ""
+    for key in keys:
+        value = obj.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+def git_remote(cwd):
+    if not cwd:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        return proc.stdout.strip()
+    except Exception:
+        return ""
+
+raw_normalized = sys.stdin.read()
+try:
+    out = json.loads(raw_normalized)
+    if not isinstance(out, dict):
+        print(raw_normalized, end="")
+        sys.exit(0)
+except Exception:
+    print(raw_normalized, end="")
+    sys.exit(0)
+
+try:
+    source = json.loads(os.environ.get("AGENTKEEPER_RAW_INPUT", "") or "{}")
+    if not isinstance(source, dict):
+        source = {}
+except Exception:
+    source = {}
+
+cwd = first_str(out, ["cwd"]) or first_str(source, ["cwd", "workspace_root", "workspaceRoot", "project_root", "projectRoot"]) or os.getcwd()
+if cwd and not out.get("cwd"):
+    out["cwd"] = cwd
+
+remote = first_str(out, ["git_remote_url", "git_remote", "repository_remote", "repo_remote", "remote_url"])
+if not remote:
+    remote = first_str(source, ["git_remote_url", "git_remote", "repository_remote", "repo_remote", "remote_url"])
+if not remote:
+    remote = git_remote(cwd)
+if remote:
+    out["git_remote_url"] = remote
+
+print(json.dumps(out, separators=(",", ":")), end="")
+' 2>/dev/null <<< "$normalized" || printf '%s' "$normalized"
+  else
+    printf '%s' "$normalized"
+  fi
+}
 
 # ── Normalize Cursor JSON → Claude Code format ──
 
@@ -148,6 +215,8 @@ except:
     ;;
 esac
 
+NORMALIZED=$(_enrich_repo_context "$NORMALIZED" "$INPUT")
+
 # ── Call shared script ──
 
 if [ -z "$SHARED_SCRIPT" ] || [ ! -x "$SHARED_SCRIPT" ]; then
@@ -174,13 +243,14 @@ fi
 DECISION=$(printf '%s' "$SHARED_RESPONSE" | grep -oE '"permissionDecision"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)".*/\1/') || true
 REASON=$(printf '%s' "$SHARED_RESPONSE" | grep -oE '"permissionDecisionReason"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)".*/\1/') || true
 CONTEXT=$(printf '%s' "$SHARED_RESPONSE" | grep -oE '"additionalContext"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)".*/\1/') || true
+TOP_REASON=$(printf '%s' "$SHARED_RESPONSE" | grep -oE '"reason"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)".*/\1/') || true
 
 # Also check for UserPromptSubmit block format
 BLOCK_DECISION=$(printf '%s' "$SHARED_RESPONSE" | grep -oE '"decision"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)".*/\1/') || true
 
-if [ "$DECISION" = "deny" ] || [ "$BLOCK_DECISION" = "block" ]; then
+if [ "$DECISION" = "deny" ] || [ "$BLOCK_DECISION" = "block" ] || [ "$BLOCK_DECISION" = "deny" ]; then
   # Deny → Cursor format
-  DENY_MSG="${REASON:-${CONTEXT:-Blocked by AgentKeeper}}"
+  DENY_MSG="${REASON:-${TOP_REASON:-${CONTEXT:-Blocked by AgentKeeper}}}"
   ENFORCEMENT="attempted"  # Cursor may not honor deny (known bug)
   debug_log "cursor" "$EVENT" "1.0.0" "$DETECT_MS" "0" "block" "$ENFORCEMENT" "0" 2>/dev/null || true
   printf '{"permission":"deny","userMessage":"%s","agentMessage":"AgentKeeper security policy blocked this action: %s. Try an alternative approach."}\n' \
@@ -193,22 +263,6 @@ else
   # Allow
   debug_log "cursor" "$EVENT" "1.0.0" "$DETECT_MS" "0" "pass" "n/a" "0" 2>/dev/null || true
   printf '{}\n'
-fi
-
-# Fire-and-forget API reporting in background
-if [ -n "${AGENTKEEPER_API_KEY:-}" ] || [ -n "$(resolve_api_key 2>/dev/null)" ]; then
-  (
-    API_KEY="${AGENTKEEPER_API_KEY:-$(resolve_api_key 2>/dev/null)}"
-    HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
-    MACHINE_ID=$(get_machine_id)
-    printf '%s' "$NORMALIZED" | curl -s --max-time 4 \
-      -X POST "https://www.agentkeeper.dev/api/v1/evaluate?tool=cursor" \
-      -H "Content-Type: application/json" \
-      -H "Authorization: Bearer ${API_KEY}" \
-      -H "X-Hostname: ${HOSTNAME_VAL}" \
-      -H "X-Machine-Id: ${MACHINE_ID}" \
-      -d @- >/dev/null 2>&1
-  ) &
 fi
 
 exit 0

@@ -259,7 +259,7 @@ fi
   # non-allow, which masked benign activity on the timeline).
   API_KEY=$(resolve_api_key 2>/dev/null) || true
   if [ -n "$API_KEY" ]; then
-    HOSTNAME_VAL=$(scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || printf 'unknown')
+    HOSTNAME_VAL=$(get_agentkeeper_hostname 2>/dev/null || scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'unknown')
     MACHINE_ID=$(get_machine_id)
     printf '%s' "$INPUT" | curl -s --max-time 4 -X POST "https://www.agentkeeper.dev/api/v1/evaluate?tool=copilot" \
       -H "Content-Type: application/json" \

@@ -34,11 +34,12 @@ fail() { FAIL=$((FAIL + 1)); printf "${RED}  FAIL${NC}  %s\n" "$1"; }
 TMPDIR_ROOT=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 
+export HOME="${TMPDIR_ROOT}/home"
 export CLAUDE_PLUGIN_DATA="${TMPDIR_ROOT}/plugin-data"
 export CLAUDE_PLUGIN_OPTION_API_KEY=""   # Force local mode
 export CLAUDE_SESSION_ID="test-windsurf-$$"
 export AGENTKEEPER_IDE="windsurf"
-mkdir -p "$CLAUDE_PLUGIN_DATA"
+mkdir -p "$HOME" "$CLAUDE_PLUGIN_DATA"
 
 # Set mode to block so detections produce deny/block (not just warn)
 echo '{"mode":"block"}' > "${CLAUDE_PLUGIN_DATA}/config.json"

@@ -49,7 +49,7 @@ cat "$AGENTKEEPER_DIR/nudge_state.json" 2>/dev/null
 
 If the nudge state file exists, parse `total_blocks`, `nudges_shown`, and any session counters. If it does not exist, use defaults (0 blocks, no sessions recorded).
 
-Also read the config for detection mode:
+Also read the config for the local outcome:
 ```bash
 AGENTKEEPER_DIR="$HOME/.agentkeeper-plugin"
 [ -n "$CLAUDE_PLUGIN_DATA" ] && AGENTKEEPER_DIR="$CLAUDE_PLUGIN_DATA"
@@ -61,7 +61,7 @@ Display:
 AgentKeeper Shield Status
 
 Mode: Local (no account connected)
-Detection: [warn|block] mode
+Local Outcome: [Warn|Block]
 Shield: Active — using bundled threat patterns
 Hooks: [if user_http: "User-level HTTP hooks (full coverage)" | if repo_http: "Repo-level HTTP hooks (full coverage)" | if plugin: "Plugin hooks only (limited — run /agentkeeper:connect to upgrade)"]
 
@@ -108,7 +108,7 @@ Hooks: [if user_http: "User-level HTTP hooks (full coverage)" | if repo_http: "R
 
 Workstations: [online_count] online / [total_count] total
 Recent Events: [event_count] in last 24h
-Detection Mode: [from response or config.json]
+Policy Outcome: [Monitor|Warn|Block from response or local config]
 
 Dashboard: https://www.agentkeeper.dev/dashboard
 

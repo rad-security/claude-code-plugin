@@ -2,7 +2,7 @@
 # local-detect.sh — Local threat detection engine for AgentKeeper Claude Code plugin
 #
 # Ports the TypeScript detection patterns from claude-code-detect.ts to pure
-# bash for sub-50ms offline evaluation. No network calls, no jq dependency.
+# bash for offline evaluation. No network calls, no jq dependency.
 #
 # Usage:  printf '%s' "$json_payload" | local-detect.sh <hook_type>
 #   hook_type: pre_tool | post_tool | prompt
@@ -15,8 +15,8 @@
 #
 # Performance: all patterns use grep -Eq (short-circuit on first match).
 # Only the relevant pattern set runs based on tool_name.
-# JSON extraction uses grep/sed for simple fields, python3 only for the
-# Bash command field (which may contain escaped quotes).
+# JSON extraction uses macOS plutil when available, with a simple fallback for
+# non-macOS local development. Escaped fields stay decoded before scanning.
 
 set -euo pipefail
 
@@ -38,41 +38,68 @@ if [ -z "$INPUT" ]; then
 fi
 
 # ── JSON Field Extraction ───────────────────────────────────────────────
-# Portable extraction without jq. Pure grep/sed for simple string fields.
-# python3 only for command field (may contain escaped quotes in value).
+# Portable extraction without jq or a scripting runtime.
+
+JSON_FILE=""
+cleanup_json_file() {
+  if [ -n "${JSON_FILE:-}" ]; then
+    rm -f "$JSON_FILE"
+  fi
+}
+trap cleanup_json_file EXIT
+
+if command -v /usr/bin/plutil >/dev/null 2>&1; then
+  JSON_FILE=$(mktemp "${TMPDIR:-/tmp}/agentkeeper-local-detect.XXXXXX") || JSON_FILE=""
+  if [ -n "$JSON_FILE" ]; then
+    if ! printf '%s' "$INPUT" > "$JSON_FILE"; then
+      rm -f "$JSON_FILE"
+      JSON_FILE=""
+    fi
+  fi
+fi
+
+extract_plutil_field() {
+  local path="$1"
+  local value=""
+  [ -n "${JSON_FILE:-}" ] || return 1
+  value=$(/usr/bin/plutil -extract "$path" raw "$JSON_FILE" 2>/dev/null) || return 1
+  printf '%s' "$value"
+}
 
 extract_simple_field() {
-  # Extract a simple JSON string field: "key": "value"
-  # Works for fields whose values do not contain escaped quotes.
   local field="$1"
-  printf '%s' "$INPUT" | grep -oE "\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/'
+  local value=""
+  local path=""
+
+  for path in "tool_input.${field}" "toolInput.${field}" "params.${field}" "arguments.${field}" "args.${field}" "input.${field}" "$field"; do
+    value=$(extract_plutil_field "$path") || value=""
+    if [ -n "$value" ]; then
+      printf '%s' "$value"
+      return
+    fi
+  done
+
+  printf '%s' "$INPUT" | grep -oE "\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/' || true
 }
 
 extract_command_field() {
-  # Extract tool_input.command — may contain escaped quotes, newlines, etc.
-  # Try fast grep/sed first (works for commands without escaped quotes).
-  # Fall back to python3 only when the fast path yields nothing (escaped content).
   local result=""
 
-  # Fast path: grep for "command":"..." (no embedded escaped quotes)
-  result=$(printf '%s' "$INPUT" | grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/') || true
-
-  # The fast path truncates if the value contains escaped quotes (\").
-  # Detect this: if the JSON has \" in the command value, the fast path is wrong.
-  # Fall back to python3 for accurate extraction.
-  if printf '%s' "$INPUT" | grep -q '"command"[[:space:]]*:[[:space:]]*"[^"]*\\"' 2>/dev/null; then
-    result=""  # force python3 path
+  result=$(extract_simple_field "command") || result=""
+  if [ -z "$result" ]; then
+    result=$(extract_simple_field "cmd") || result=""
   fi
-
-  # Slow path: python3 for commands containing escaped quotes / unicode
-  if [ -z "$result" ] && command -v python3 >/dev/null 2>&1; then
-    result=$(printf '%s' "$INPUT" | python3 -c "
-import sys,json
-try:
- d=json.load(sys.stdin);print(d.get('tool_input',{}).get('command',''))
-except:
- pass
-" 2>/dev/null) || true
+  if [ -z "$result" ]; then
+    result=$(extract_simple_field "shell_command") || result=""
+  fi
+  if [ -z "$result" ]; then
+    result=$(extract_simple_field "shellCommand") || result=""
+  fi
+  if [ -z "$result" ]; then
+    result=$(extract_simple_field "command_line") || result=""
+  fi
+  if [ -z "$result" ]; then
+    result=$(extract_simple_field "commandLine") || result=""
   fi
 
   printf '%s' "$result"
@@ -81,7 +108,6 @@ except:
 extract_prompt_text() {
   # Extract prompt text from UserPromptSubmit payloads.
   # Tries tool_input.{prompt,message,content}, then top-level.
-  # Fast path: grep/sed. Slow path: python3 for escaped content.
   local result=""
 
   # Fast path: try grep for each candidate field
@@ -93,26 +119,109 @@ extract_prompt_text() {
     fi
   done
 
-  # Slow path: python3 for payloads with escaped content
-  if command -v python3 >/dev/null 2>&1; then
-    result=$(printf '%s' "$INPUT" | python3 -c "
-import sys,json
-try:
- d=json.load(sys.stdin)
- ti=d.get('tool_input',{})
- for k in['prompt','message','content']:
-  v=ti.get(k,'')
-  if v:print(v);break
- else:
-  for k in['prompt','message','content']:
-   v=d.get(k,'')
-   if v:print(v);break
-except:
- pass
-" 2>/dev/null) || true
-  fi
-
   printf '%s' "$result"
+}
+
+normalize_command_for_scan() {
+  printf '%s' "$1" | sed -e "s/\\\\\\([A-Za-z0-9_./:-]\\)/\\1/g" -e "s/[\"']//g"
+}
+
+append_script_content_for_scan() {
+  local raw_cmd="$1"
+  local cwd="$2"
+  local shell_seen=0
+  local skip_next=0
+  local token=""
+  local script=""
+  local script_path=""
+
+  [ -n "$cwd" ] || {
+    printf '%s' "$raw_cmd"
+    return
+  }
+
+  for token in $raw_cmd; do
+    if [ "$shell_seen" -eq 0 ]; then
+      case "$token" in
+        bash|sh|zsh) shell_seen=1 ;;
+      esac
+      continue
+    fi
+    if [ "$skip_next" -eq 1 ]; then
+      skip_next=0
+      continue
+    fi
+    case "$token" in
+      -c) skip_next=1 ;;
+      -*) ;;
+      *) script="$token"; break ;;
+    esac
+  done
+
+  [ -n "$script" ] || {
+    printf '%s' "$raw_cmd"
+    return
+  }
+  case "$script" in
+    /*) script_path="$script" ;;
+    *) script_path="${cwd}/${script}" ;;
+  esac
+  if [ -f "$script_path" ] && [ ! -L "$script_path" ]; then
+    printf '%s\n%s' "$raw_cmd" "$(head -c 65536 "$script_path" 2>/dev/null || true)"
+  else
+    printf '%s' "$raw_cmd"
+  fi
+}
+
+# ── AgentKeeper Bypass Request ──────────────────────────────────────────
+# Same rule as web/src/lib/detection/agentkeeper-bypass-request.ts; keep the
+# two in step. Per sentence, a control-removal verb with a target that starts
+# within eight words after it. Before the verb a target counts only in the
+# passive ("agentkeeper should be disabled") or after a causative ("i need the
+# agentkeeper hooks turned off"), so "why did agentkeeper stop my build?" is
+# not a request, and a verb right after a negation ("do not disable") never
+# counts. Targets are AgentKeeper and guardrails, plus hooks, monitoring,
+# audit logs, controls, checks and protections when a qualifier (claude,
+# agent, security, prompt, policy...) is within the three words before them.
+# Webhooks and developer hooks (git, pre-commit, husky, React, web, useX)
+# never count. POSIX ERE and C-locale tools only: bash 3.2 with BSD tools, and
+# Git Bash.
+is_agentkeeper_bypass_request() {
+  local sep='[^a-z0-9_]+'
+  local near="(${sep}[a-z0-9_]+){0,7}${sep}"
+  local near5="(${sep}[a-z0-9_]+){0,5}${sep}"
+  local near3="(${sep}[a-z0-9_]+){0,3}${sep}"
+  local near2="(${sep}[a-z0-9_]+){0,2}${sep}"
+  local verb='(disabl(e|es|ed|ing)|deactivat(e|es|ed|ing)|(turn(s|ed|ing)?|switch(es|ed|ing)?)[[:space:]]+off|shut(s|ting)?[[:space:]]+(off|down)|remov(e|es|ed|ing)|delet(e|es|ed|ing)|uninstall(s|ed|ing)?|bypass(es|ed|ing)?|skip(s|ped|ping)?|evad(e|es|ed|ing)|circumvent(s|ed|ing)?|(get(s|ting)?|got(ten)?)[[:space:]]+around|(go(es|ing|ne)?|went)[[:space:]]+around|work(s|ed|ing)?[[:space:]]+around|kill(s|ed|ing)?|stop(s|ped|ping)?|silenc(e|es|ed|ing)|mut(e|es|ed|ing)|ignor(e|es|ed|ing))'
+  local participle='(disabled|deactivated|(turned|switched|shut)[[:space:]]+(off|down)|removed|deleted|uninstalled|bypassed|skipped|evaded|circumvented|killed|stopped|silenced|muted|ignored)'
+  local auxiliary='(be|been|being|is|are|was|were|get|gets|getting|got|gotten)'
+  local causative='(need|needs|needed|want|wants|wanted|get|gets|got)'
+  local qualifier='(claude|agent|agentkeeper|security|pretooluse|posttooluse|userpromptsubmit|prompt|policy)'
+  local qualified='(hooks?|monitoring|audit([[:space:]]+|-)?(logging|logs?)|controls|checks|protections?)'
+  local target='(agent([[:space:]]+|-)?keeper|guard([[:space:]]+|-)?rails?|qualified_target)'
+  local sentences
+
+  # Candidate: every target or qualifier contains one of these stems.
+  LC_ALL=C grep -Eiq 'agent|guard|claude|security|tooluse|prompt|policy' <<<"$1" || return 1
+
+  # Exclusions rewrite a word (hook -> xhook, disable -> xdisable) so it can no
+  # longer match, leaving word counts unchanged; a useX identifier is
+  # camelCase, so it is rewritten before lowercasing. The text is then
+  # lowercased with one sentence per line (escaped \n and \r break too: the
+  # non-plutil field extraction leaves JSON escapes undecoded), a verb right
+  # after a negation is rewritten, and a qualified target with its qualifier
+  # becomes the single word qualified_target.
+  sentences=$(printf '%s\n' "$1" \
+    | LC_ALL=C sed -E \
+      -e 's/\\[nr]/./g' \
+      -e 's/\\t/ /g' \
+      -e 's/(^|[^A-Za-z0-9_])(use[A-Z][A-Za-z0-9_]*[^A-Za-z0-9_]+)([Hh][Oo][Oo][Kk])/\1\2x\3/g' \
+    | LC_ALL=C tr 'A-Z.!?;\r' 'a-z\n\n\n\n\n' \
+    | LC_ALL=C sed -E \
+      -e 's/(^|[^a-z0-9_])(git|pre-commit|precommit|commit|pre-push|post-merge|husky|react|lifecycle|web)([^a-z0-9_]+)hook/\1\2\3xhook/g' \
+      -e 's/(^|[^a-z0-9_])(not|never|no|without|avoid|avoiding|cannot|(don|doesn|didn|can|couldn|won|wouldn|shouldn|mustn)[^a-z0-9_]{0,3}t)(([^a-z0-9_]+[a-z0-9_]+)?[^a-z0-9_]+)(disabl|deactivat|turn|switch|shut|remov|delet|uninstall|bypass|skip|evad|circumvent|get|got|go|went|work|kill|stop|silenc|mut|ignor)/\1\2\4x\6/g' \
+      -e "s/(^|[^a-z0-9_])${qualifier}((${sep}[a-z0-9_]+){0,2}${sep})${qualified}/\\1\\2\\3qualified_target/g")
+  LC_ALL=C grep -Eq "(^|[^a-z0-9_])(${verb}${near}${target}|${target}${near5}${auxiliary}(${sep}[a-z0-9_]+)?${sep}${participle}|${causative}${near3}${target}${near2}${participle})([^a-z0-9_]|\$)" <<<"$sentences"
 }
 
 # ── Detection Output ────────────────────────────────────────────────────
@@ -146,102 +255,106 @@ case "$tool_name" in
   Bash)
     cmd=$(extract_command_field)
     [ -z "$cmd" ] && exit 0
+    cwd=$(extract_simple_field "cwd")
+    cmd=$(append_script_content_for_scan "$cmd" "$cwd")
+    cmd_scan=$(normalize_command_for_scan "$cmd")
 
-    # ── Pre-filter: fast reject for benign commands ──
-    # A single grep with all trigger keywords. If NONE match, skip all patterns.
-    # This makes the common case (safe commands) extremely fast.
-    if ! printf '%s' "$cmd" | grep -Eiq '(\.env|\.ssh|\.aws|\.gnupg|credentials|secrets|tokens?|curl|wget|nc[[:space:]]|ncat|/dev/tcp|socket|base64|history|shadow|master\.passwd|chmod|rm[[:space:]]+-r|xmrig|cpuminer|minerd|cgminer|bfgminer|stratum|cryptonight|monero|dig[[:space:]]|nslookup|ufw|iptables|pfctl|setenforce|apparmor|aa-teardown|crowdstrike|falcon-sensor|sentinel|cylance|symantec|mcafee|launchctl|pip[[:space:]]+install|npm[[:space:]]+install|gem[[:space:]]+install|HISTFILE|HISTSIZE)'; then
-      exit 0
+    if printf '%s' "$cmd_scan" | grep -Eiq '(^|[;&|[:space:]])(rm|mv|chmod|chown|unlink|truncate|sed[[:space:]]+-i)[[:space:]].*(\.agentkeeper|agentkeeper-plugin|\.claude/(settings|settings\.local)\.json|\.cursor/(hooks/agentkeeper-hook\.sh|hooks\.json)|\.codeium/windsurf/hooks(/agentkeeper-hook\.sh|\.json)|\.copilot/hooks/(agentkeeper-hook\.sh|agentkeeper\.json)|\.github/hooks/agentkeeper\.json|\.gemini/settings\.json|\.codex/(config\.toml|requirements\.toml)|cowork_plugins|known_marketplaces\.json|installed_plugins\.json|cowork_settings\.json)'; then
+      emit_detection "agentkeeper_control_tamper" "critical" "Modifying AgentKeeper or managed IDE control files"
     fi
 
     # ── Credential Exfiltration (pipe) ──
     # More specific: credentials piped directly to network command
     # Must be checked BEFORE the general credential_exfil pattern
-    if printf '%s' "$cmd" | grep -Eiq '(cat|head|tail)[[:space:]]+.*(\.env|\.ssh/|\.aws/|credentials|secrets|tokens?).*\|[[:space:]]*(curl|wget|nc|ncat)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(cat|head|tail)[[:space:]]+.*(\.env|\.ssh/|\.aws/|credentials|secrets|tokens?).*\|[[:space:]]*(curl|wget|nc|ncat)'; then
       emit_detection "credential_exfil_pipe" "critical" "Piping credentials to a network command"
     fi
 
     # ── Credential Exfiltration (subshell) ──
     # Embed credential read in network request via $() or backticks
-    if printf '%s' "$cmd" | grep -Eiq '(curl|wget).*(\$\(cat|`cat).*(\.env|\.ssh|\.aws|credentials|secrets|token)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(curl|wget).*(\$\(cat|`cat).*(\.env|\.ssh|\.aws|credentials|secrets|token)'; then
       emit_detection "credential_exfil_subshell" "critical" "Embedding credentials in a network request via subshell"
     fi
 
     # ── Credential Exfiltration (general) ──
     # Reads sensitive file AND sends to network in same command
-    if printf '%s' "$cmd" | grep -Eiq '(cat|head|tail|less|more|bat)[[:space:]]+.*(\.env|\.ssh/|\.aws/|\.gnupg/|credentials|secrets|tokens?\.json|\.netrc|\.npmrc|\.pypirc)'; then
-      if printf '%s' "$cmd" | grep -Eiq '(curl|wget|nc|ncat)[[:space:]]+.*(https?://|ftp://)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(cat|head|tail|less|more|bat)[[:space:]]+.*(\.env|\.ssh/|\.aws/|\.gnupg/|credentials|secrets|tokens?\.json|\.netrc|\.npmrc|\.pypirc)'; then
+      if printf '%s' "$cmd_scan" | grep -Eiq '(curl|wget|nc|ncat)[[:space:]]+.*(https?://|ftp://)'; then
         emit_detection "credential_exfil" "critical" "Reading sensitive files and sending to external endpoint"
       fi
     fi
 
     # ── Reverse Shells ──
-    if printf '%s' "$cmd" | grep -Eiq '(bash[[:space:]]+-i[[:space:]]+>&[[:space:]]*/dev/tcp|nc[[:space:]]+.*-e[[:space:]]+/bin/(sh|bash)|ncat[[:space:]]+.*--exec|python[23]?[[:space:]]+-c[[:space:]]+.*socket.*connect|perl[[:space:]]+-e[[:space:]]+.*socket.*exec|ruby[[:space:]]+-rsocket[[:space:]]+-e)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(bash[[:space:]]+-i[[:space:]]+>&[[:space:]]*/dev/tcp|nc[[:space:]]+.*-e[[:space:]]+/bin/(sh|bash)|ncat[[:space:]]+.*--exec|python[23]?[[:space:]]+-c[[:space:]]+.*socket.*connect|perl[[:space:]]+-e[[:space:]]+.*socket.*exec|ruby[[:space:]]+-rsocket[[:space:]]+-e)'; then
       emit_detection "reverse_shell" "critical" "Reverse shell connection attempt"
     fi
 
     # Base64-encoded payload piped to shell
-    if printf '%s' "$cmd" | grep -Eiq '(echo|printf)[[:space:]]+[A-Za-z0-9+/=]+[[:space:]]*\|[[:space:]]*(base64[[:space:]]+-d|openssl[[:space:]]+base64[[:space:]]+-d)[[:space:]]*\|[[:space:]]*(bash|sh|zsh|python|perl|ruby)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(echo|printf)[[:space:]]+[A-Za-z0-9+/=]+[[:space:]]*\|[[:space:]]*(base64[[:space:]]+-d|openssl[[:space:]]+base64[[:space:]]+-d)[[:space:]]*\|[[:space:]]*(bash|sh|zsh|python|perl|ruby)'; then
       emit_detection "reverse_shell_encoded" "critical" "Base64-encoded command piped to shell execution"
     fi
 
     # ── Security Control Bypass ──
-    if printf '%s' "$cmd" | grep -Eiq '(ufw[[:space:]]+disable|iptables[[:space:]]+-F|iptables[[:space:]]+--flush|pfctl[[:space:]]+-d|systemctl[[:space:]]+(stop|disable)[[:space:]]+(ufw|firewalld|iptables))'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(ufw[[:space:]]+disable|iptables[[:space:]]+-F|iptables[[:space:]]+--flush|pfctl[[:space:]]+-d|systemctl[[:space:]]+(stop|disable)[[:space:]]+(ufw|firewalld|iptables))'; then
       emit_detection "firewall_disable" "critical" "Disabling system firewall"
     fi
 
-    if printf '%s' "$cmd" | grep -Eiq '(setenforce[[:space:]]+0|echo[[:space:]]+0[[:space:]]*>[[:space:]]*/sys/fs/selinux/enforce|systemctl[[:space:]]+(stop|disable)[[:space:]]+apparmor|aa-teardown)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(setenforce[[:space:]]+0|echo[[:space:]]+0[[:space:]]*>[[:space:]]*/sys/fs/selinux/enforce|systemctl[[:space:]]+(stop|disable)[[:space:]]+apparmor|aa-teardown)'; then
       emit_detection "selinux_disable" "critical" "Disabling SELinux or AppArmor"
     fi
 
-    if printf '%s' "$cmd" | grep -Eiq '(systemctl[[:space:]]+(stop|disable)[[:space:]]+(clamd|crowdstrike|falcon-sensor|sentinel|cylance|symantec|mcafee)|launchctl[[:space:]]+unload.*(endpoint|security|protection))'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(systemctl[[:space:]]+(stop|disable)[[:space:]]+(clamd|crowdstrike|falcon-sensor|sentinel|cylance|symantec|mcafee)|launchctl[[:space:]]+unload.*(endpoint|security|protection))'; then
       emit_detection "antivirus_disable" "critical" "Disabling antivirus or endpoint protection"
     fi
 
     # ── Destructive Operations ──
-    if printf '%s' "$cmd" | grep -Eiq 'rm[[:space:]]+(-rf|-fr|--no-preserve-root)[[:space:]]+(/[[:space:]]|/\*|~/|/home|/etc|/usr|/var|/System)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq 'rm[[:space:]]+(-rf|-fr|--no-preserve-root)[[:space:]]+(/[[:space:]]|/\*|~/|/home|/etc|/usr|/var|/System)'; then
       emit_detection "recursive_delete_root" "critical" "Recursive deletion from root or system directory"
     fi
 
     # ── History Tampering ──
-    if printf '%s' "$cmd" | grep -Eiq '(history[[:space:]]+-c|>[[:space:]]*~/\.(bash_history|zsh_history)|shred[[:space:]]+.*history|rm[[:space:]]+.*\.(bash_history|zsh_history)|unset[[:space:]]+HISTFILE|export[[:space:]]+HISTSIZE=0)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(history[[:space:]]+-c|>[[:space:]]*~/\.(bash_history|zsh_history)|shred[[:space:]]+.*history|rm[[:space:]]+.*\.(bash_history|zsh_history)|unset[[:space:]]+HISTFILE|export[[:space:]]+HISTSIZE=0)'; then
       emit_detection "history_tampering" "high" "Clearing shell history or logs to cover tracks"
     fi
 
     # ── Shadow File Access ──
-    if printf '%s' "$cmd" | grep -Eiq '(cat|head|tail|less|more|vim?|nano|cp|scp)[[:space:]]+(/etc/shadow|/etc/master\.passwd)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(cat|head|tail|less|more|vim?|nano|cp|scp)[[:space:]]+(/etc/shadow|/etc/master\.passwd)'; then
       emit_detection "shadow_access" "high" "Accessing system password database"
     fi
 
     # ── SSH Key Exfiltration ──
     # Reads SSH private key AND has network activity AND is chained
-    if printf '%s' "$cmd" | grep -Eiq '(cat|head|tail|cp|scp|base64)[[:space:]]+.*(id_rsa|id_ed25519|id_ecdsa|\.pem|\.key)\b'; then
-      if printf '%s' "$cmd" | grep -Eiq '(curl|wget|nc|ssh|scp|rsync)[[:space:]]'; then
-        if printf '%s' "$cmd" | grep -Eq '[;&|]'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(cat|head|tail|cp|scp|base64)[[:space:]]+.*(id_rsa|id_ed25519|id_ecdsa|\.pem|\.key)\b'; then
+      if printf '%s' "$cmd_scan" | grep -Eiq '(curl|wget|nc|ssh|scp|rsync)[[:space:]]'; then
+        if printf '%s' "$cmd_scan" | grep -Eq '[;&|]'; then
           emit_detection "ssh_key_read_and_send" "critical" "Reading SSH private keys with network activity in same command"
         fi
       fi
     fi
 
     # ── Cryptomining ──
-    if printf '%s' "$cmd" | grep -Eiq '(xmrig|cpuminer|minerd|cgminer|bfgminer|stratum\+tcp|cryptonight|monero.*pool|(curl|wget).*(\.sh|\.bin)[[:space:]]*\|[[:space:]]*(bash|sh).*mine)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(xmrig|cpuminer|minerd|cgminer|bfgminer|stratum\+tcp|cryptonight|monero.*pool|(curl|wget).*(\.sh|\.bin)[[:space:]]*\|[[:space:]]*(bash|sh).*mine)'; then
       emit_detection "cryptominer" "critical" "Cryptocurrency mining software installation or execution"
     fi
 
     # ── DNS Exfiltration ──
-    if printf '%s' "$cmd" | grep -Eiq '(dig|nslookup|host)[[:space:]]+.*\$\(|(base64|xxd|od).*\|[[:space:]]*(dig|nslookup|host)'; then
+    # The DNS tool must sit at a command position, and the encoder branch must
+    # pipe into it. Word boundaries are load-bearing: without them "od" matches
+    # inside code, prod, node and mode, and "host" matches inside hostname and
+    # localhost, so any command mentioning both looked like DNS exfiltration.
+    if printf '%s' "$cmd_scan" | grep -Eiq '(^|[;&|][[:space:]]*)(dig|nslookup|host)[[:space:]]+.*(\$\(|`)|\b(base64|xxd|od)\b.*\|[[:space:]]*(xargs[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?(dig|nslookup|host)\b'; then
       emit_detection "dns_exfil" "high" "Encoding data in DNS queries for exfiltration"
     fi
 
     # ── SUID/SGID Manipulation ──
     # Numeric: setuid bit requires leading octal digit 4-7 (e.g., 4755, 6755)
     # Symbolic: u+s or g+s
-    if printf '%s' "$cmd" | grep -Eiq 'chmod[[:space:]]+[ug]\+s[[:space:]]'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq 'chmod[[:space:]]+[ug]\+s[[:space:]]'; then
       emit_detection "suid_manipulation" "critical" "Setting SUID/SGID bits for privilege escalation"
     fi
-    if printf '%s' "$cmd" | grep -Eq 'chmod[[:space:]]+[0-7]*[4-7][0-7]{2}[[:space:]]'; then
+    if printf '%s' "$cmd_scan" | grep -Eq 'chmod[[:space:]]+[0-7]*[4-7][0-7]{2}[[:space:]]'; then
       # Verify the match is actually a setuid/setgid mode (4-digit with leading 4-7)
-      _suid_mode=$(printf '%s' "$cmd" | grep -oE 'chmod[[:space:]]+[0-7]+' | head -1 | grep -oE '[0-7]+$') || true
+      _suid_mode=$(printf '%s' "$cmd_scan" | grep -oE 'chmod[[:space:]]+[0-7]+' | head -1 | grep -oE '[0-7]+$') || true
       if [ -n "${_suid_mode:-}" ] && [ "${#_suid_mode}" -ge 4 ]; then
         # 4+ digit mode — first digit determines special bits
         _suid_first="${_suid_mode:0:1}"
@@ -252,7 +365,7 @@ case "$tool_name" in
     fi
 
     # ── Suspicious Package Installation ──
-    if printf '%s' "$cmd" | grep -Eiq '(pip[[:space:]]+install|npm[[:space:]]+install|gem[[:space:]]+install)[[:space:]]+(https?://|git\+|git://)'; then
+    if printf '%s' "$cmd_scan" | grep -Eiq '(pip[[:space:]]+install|npm[[:space:]]+install|gem[[:space:]]+install)[[:space:]]+(https?://|git\+|git://)'; then
       emit_detection "suspicious_install" "high" "Installing packages from raw URLs instead of registries"
     fi
 
@@ -263,6 +376,10 @@ case "$tool_name" in
   Write|Edit)
     file_path=$(extract_simple_field "file_path")
     [ -z "$file_path" ] && exit 0
+
+    if printf '%s' "$file_path" | grep -Eiq '(/\.claude/(settings|settings\.local)\.json$|/\.agentkeeper|/agentkeeper-plugin|/\.cursor/(hooks/agentkeeper-hook\.sh|hooks\.json)$|/\.codeium/windsurf/hooks(/agentkeeper-hook\.sh|\.json)$|/\.copilot/hooks/(agentkeeper-hook\.sh|agentkeeper\.json)$|/\.github/hooks/agentkeeper\.json$|/\.gemini/settings\.json$|/\.codex/(config\.toml|requirements\.toml)$|/cowork_plugins/|/(known_marketplaces|installed_plugins|cowork_settings)\.json$)'; then
+      emit_detection "agentkeeper_control_config_write" "critical" "Modifying AgentKeeper or managed IDE control configuration"
+    fi
 
     # ── SSH Config Write ── (before system_file_write to avoid shadowing)
     if printf '%s' "$file_path" | grep -Eiq '(\.ssh/(authorized_keys|config|known_hosts|id_)|/etc/ssh/sshd_config)'; then
@@ -420,6 +537,10 @@ case "$tool_name" in
   UserPrompt)
     prompt_text=$(extract_prompt_text)
     [ -z "$prompt_text" ] && exit 0
+
+    if is_agentkeeper_bypass_request "$prompt_text"; then
+      emit_detection "agentkeeper_bypass_request" "critical" "Request to disable or bypass AgentKeeper controls"
+    fi
 
     # ── Prompt Injection: Override ──
     if printf '%s' "$prompt_text" | grep -Eiq '(ignore|disregard|forget|override)[[:space:]]+(all[[:space:]]+)?(previous|prior|above|earlier)[[:space:]]+(instructions?|rules?|guidelines?|constraints?)'; then
