@@ -1,6 +1,6 @@
 ---
 name: policies
-description: View organization security policies for AgentKeeper. Shows detection mode, blocked tools, blocked commands, path restrictions, and custom blocklists. Run when the user wants to see what policies are enforced, check security settings, or view org configuration.
+description: View organization security policies for AgentKeeper. Shows Monitor/Warn/Block outcomes, blocked tools, blocked commands, path restrictions, and custom blocklists. Run when the user wants to see what policies apply, check security settings, or view org configuration.
 ---
 
 # AgentKeeper Policies
@@ -39,7 +39,7 @@ a bundled set of 12 critical/high threat patterns:
   - prompt_injection — common injection patterns in prompts
   - token_theft — stealing auth tokens and session data
 
-Default behavior: warn (detect and flag, but allow execution)
+Default local outcome: Warn (detect and flag, but allow execution)
 
 To view and manage organization policies, connect an account:
   /agentkeeper:connect
@@ -49,7 +49,7 @@ Pro plan adds:
   - Custom blocked command patterns
   - Path restriction policies
   - Custom blocklists (words, domains, patterns)
-  - Policy enforcement across all team workstations
+  - Policy Profiles across all team workstations
 ```
 
 Stop here if local mode.
@@ -98,9 +98,9 @@ Organization: [org_name]
 Plan: [plan]
 
 Shield Policy:
-  Security Level: [strict|moderate|permissive]
-  Auto-Block: [enabled|disabled]
-  Detection Mode: [warn|block]
+  Default Outcome: [Monitor|Warn|Block]
+  Surface Support: [Can block|Warn advisory|Audit only|Partial|Unavailable]
+  Policy Profile: [Base Policy or group profile if available]
 
 [If blocked tools are configured]:
 Blocked Tools:

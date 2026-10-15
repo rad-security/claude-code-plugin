@@ -31,10 +31,11 @@ fail() { FAIL=$((FAIL + 1)); printf "${RED}  FAIL${NC}  %s\n" "$1"; }
 TMPDIR_ROOT=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 
+export HOME="${TMPDIR_ROOT}/home"
 export CLAUDE_PLUGIN_DATA="${TMPDIR_ROOT}/plugin-data"
 export CLAUDE_PLUGIN_OPTION_API_KEY=""  # Force local mode
 export CLAUDE_SESSION_ID="test-copilot-$$"
-mkdir -p "$CLAUDE_PLUGIN_DATA/sessions"
+mkdir -p "$HOME" "$CLAUDE_PLUGIN_DATA/sessions"
 : > "$CLAUDE_PLUGIN_DATA/sessions/current.jsonl"
 
 # Create a clean working directory

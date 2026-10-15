@@ -13,7 +13,7 @@ Threat detection, compliance auditing, and secret scanning for Claude Code sessi
 Or from source during development:
 
 ```
-claude --plugin-dir /path/to/agentkeeper
+claude --plugin-dir /path/to/claude-code-plugin/plugins/agentkeeper
 ```
 
 ## What You Get (Free, No Account)
@@ -37,7 +37,7 @@ Connect a free account to unlock your dashboard — one workstation, full threat
 
 Restart Claude Code after connecting so dashboard-backed HTTP hooks load at startup.
 
-Teams use AgentKeeper Pro for fleet-wide visibility, custom policies, and compliance reporting. Learn more at [www.agentkeeper.dev/claude-code](https://www.agentkeeper.dev/claude-code).
+Teams use AgentKeeper Pro for fleet-wide visibility, custom policies, and compliance reporting. Learn more at [www.agentkeeper.dev/workstations](https://www.agentkeeper.dev/workstations).
 
 ## Slash Commands
 
@@ -62,7 +62,7 @@ The plugin hooks into Claude Code at four points:
 3. **PostToolUse** — logs tool activity for session summaries
 4. **SessionStart** — initializes session tracking
 
-Default mode is **warn** — threats are flagged but not blocked. Enable blocking mode with `/agentkeeper:setup`.
+Default local outcome is **Warn**: threats are flagged and execution continues. Use `/agentkeeper:setup` to switch local detection to **Block** when you want dangerous commands prevented before execution.
 
 When connected to an AgentKeeper account, hooks call the API for the full 24+ pattern engine, org policies, and fleet visibility. Without an account, a bundled detection engine runs locally with the most critical patterns.
 

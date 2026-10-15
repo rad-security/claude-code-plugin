@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Guided onboarding for AgentKeeper. Run when the user wants to configure AgentKeeper, check their current mode (local/connected/push-hooks), enable or disable blocking mode, or get started with the plugin.
+description: Guided onboarding for AgentKeeper. Run when the user wants to configure AgentKeeper, check their current mode (local/connected/push-hooks), choose Monitor/Warn/Block behavior where supported, or get started with the plugin.
 ---
 
 # AgentKeeper Setup
@@ -149,7 +149,7 @@ Hooks: Bundled threat detection, no network calls
 Account: Not linked
 
 What's active:
-  - Threat detection for dangerous commands (warn mode)
+  - Threat detection for dangerous commands (Warn outcome)
   - /agentkeeper:audit — grade your Claude Code security setup
   - /agentkeeper:secrets — scan for exposed secrets
   - /agentkeeper:inspect — audit installed plugins for threats
@@ -161,29 +161,29 @@ run /agentkeeper:connect to link a free account — no reinstall
 needed.
 ```
 
-## Step 3: Blocking Mode Configuration
+## Step 3: Local Outcome Configuration
 
 **Skip this step entirely if the user is in disconnected mode** (Step 1's "disconnected OR local" branch with `OPTED_LOCAL=false`). There is no plugin activity to configure, and nudging warn-vs-block would imply the user is set up when they are not.
 
-After showing the status (for push-hooks, user-level-hooks, connected, or `--local` opted-in modes), check the current blocking mode. Read the config file:
+After showing the status (for push-hooks, user-level-hooks, connected, or `--local` opted-in modes), check the current local outcome. Read the config file:
 ```bash
 AGENTKEEPER_DIR="$HOME/.agentkeeper-plugin"
 [ -n "$CLAUDE_PLUGIN_DATA" ] && AGENTKEEPER_DIR="$CLAUDE_PLUGIN_DATA"
 cat "$AGENTKEEPER_DIR/config.json" 2>/dev/null
 ```
 
-If the file exists, parse the `mode` field. If it doesn't exist, the default is `warn`.
+If the file exists, parse the `mode` field. If it doesn't exist, the default local outcome is `warn`.
 
-Display the current mode and ask if they want to change it:
+Display the current outcome and ask if they want to change it:
 ```
-Current detection mode: [warn|block]
-  - warn: Threats are flagged but execution continues (default)
-  - block: Threats are blocked and execution is prevented
+Current local outcome: [Warn|Block]
+  - Warn: Threats are flagged but execution continues (default)
+  - Block: Threats are blocked and execution is prevented
 
-Would you like to switch to [the other mode]?
+Would you like to switch to [the other outcome]?
 ```
 
-If the user wants to change modes, write the config file:
+If the user wants to change outcomes, write the config file:
 ```bash
 AGENTKEEPER_DIR="$HOME/.agentkeeper-plugin"
 [ -n "$CLAUDE_PLUGIN_DATA" ] && AGENTKEEPER_DIR="$CLAUDE_PLUGIN_DATA"
@@ -198,14 +198,14 @@ printf '{"mode":"%s","updated_at":"%s"}\n' "[warn|block]" "$(date -u +%Y-%m-%dT%
 
 Confirm the change:
 ```
-Detection mode updated to [warn|block].
-[If block]: Dangerous commands will now be blocked before execution.
-[If warn]: Dangerous commands will generate warnings but still execute.
+Local outcome updated to [Warn|Block].
+[If Block]: Dangerous commands will now be blocked before execution.
+[If Warn]: Dangerous commands will generate warnings but still execute.
 ```
 
 ## Important Notes
 - Never make network calls in local mode or disconnected mode. The only network call this skill makes is to validate an existing API key in connected / user-level-hooks mode.
-- Disconnected mode is NOT a success state. Never list sub-commands or walk the user through warn/block config when they are disconnected — doing so implied completeness in the old version of this skill and caused users to assume they were set up when they weren't.
+- Disconnected mode is NOT a success state. Never list sub-commands or walk the user through local outcome config when they are disconnected — doing so implied completeness in the old version of this skill and caused users to assume they were set up when they weren't.
 - `--local` is an explicit opt-in. Do not infer it from context. If the user has neither connected nor passed `--local`, they are disconnected.
 - Keep the output concise and actionable.
 - Always suggest next steps (relevant slash commands) when in an active mode.

