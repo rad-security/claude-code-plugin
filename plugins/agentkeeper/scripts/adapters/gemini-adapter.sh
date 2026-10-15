@@ -22,6 +22,8 @@ PLUGIN_ROOT="$AGENTKEEPER_SCRIPTS_DIR"
 
 source "${PLUGIN_ROOT}/scripts/lib/json-helpers.sh" 2>/dev/null || \
   source "${PLUGIN_ROOT}/lib/json-helpers.sh" 2>/dev/null || true
+source "${PLUGIN_ROOT}/scripts/lib/key-resolver.sh" 2>/dev/null || \
+  source "${PLUGIN_ROOT}/lib/key-resolver.sh" 2>/dev/null || true
 source "${PLUGIN_ROOT}/scripts/lib/dedup.sh" 2>/dev/null || \
   source "${PLUGIN_ROOT}/lib/dedup.sh" 2>/dev/null || true
 source "${PLUGIN_ROOT}/scripts/lib/debug-log.sh" 2>/dev/null || \
